@@ -160,7 +160,7 @@ if (constitution._error) {
 const { createCouncil } = require("./src/council/council");
 const { createSimulator } = require("./src/simulation/scenario");
 const council = createCouncil({
-  callLLM: null, // Arbiter disabled initially; enable after validation
+  callLLM: process.env.COUNCIL_ARBITER_ENABLED !== "false" ? (async (msgs) => callAI(msgs)) : null, // Arbiter enabled (opt-out via env)
   consensusThreshold: (constitutionCouncilConfig && constitutionCouncilConfig.consensusThreshold) || 0.6,
   defaultOnDisagreement: (constitutionCouncilConfig && constitutionCouncilConfig.defaultOnDisagreement) || "HOLD",
   weights: (constitutionCouncilConfig && constitutionCouncilConfig.weights) || { strategist: 1.0, risk_manager: 1.5, critic: 1.0 },
