@@ -97,6 +97,12 @@ if (!configResult.ok) {
   for (const e of configResult.errors) console.error("  - " + e);
   process.exit(1);
 }
+// Apply validated defaults to process.env so downstream code sees them.
+for (const [k, v] of Object.entries(configResult.normalized || {})) {
+  if (process.env[k] === undefined || process.env[k] === null || process.env[k] === "") {
+    process.env[k] = String(v);
+  }
+}
 
 // --- [DEEP-DEBUG] Structured file logger (daily rotation) ---
 const { createFileLogger } = require("./src/core/file-logger");
@@ -158,7 +164,7 @@ const council = createCouncil({
   consensusThreshold: (constitutionCouncilConfig && constitutionCouncilConfig.consensusThreshold) || 0.6,
   defaultOnDisagreement: (constitutionCouncilConfig && constitutionCouncilConfig.defaultOnDisagreement) || "HOLD",
   weights: (constitutionCouncilConfig && constitutionCouncilConfig.weights) || { strategist: 1.0, risk_manager: 1.5, critic: 1.0 },
-  maxPositionPct: (constitutionCouncilConfig && constitutionCouncilConfig.maxPositionPct) || (tradingGoals && tradingGoals.risk_parameters && tradingGoals.risk_parameters.max_single_position_pct) || 20,
+   maxPositionPct: (constitutionCouncilConfig && constitutionCouncilConfig.maxPositionPct) || 20,
   maxExposurePct: (constitutionCouncilConfig && constitutionCouncilConfig.maxExposurePct) || 85.0,
   maxDailyTrades: (constitutionCouncilConfig && constitutionCouncilConfig.maxDailyTrades) || 50,
   minCashReservePct: (constitutionCouncilConfig && constitutionCouncilConfig.minCashReservePct) || 15.0,
@@ -413,12 +419,12 @@ process.on("uncaughtException", function(err) {
 // --- 3. Initialize add-on modules ---
   const { createAgentTools, createTargetEngine, createEquitySnapshotter } = require("./src/agent");
 const { createTossWsClient } = require("./src/ws");
-const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createExchangeOrder, createConditionalOrder, getOrderbook, getTrades, getMarketCalendar } = require("./src/tossinvest");
+const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createExchangeOrder, createConditionalOrder, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
 // [Phase 1] New modules: P&L calculator, durable event store, order manager, market calendar, metrics
 const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket } = require("./src/agent/pnl");
 const scalper = require("./src/agent/scalper");
 const { createStore } = require("./src/store");
-const { createOrderManager } = require("./src/agent/orderManager");
+// orderManager removed: pendingOrders Map + monitorPendingOrders() handle the lifecycle.
 const cal = require("./src/agent/marketCalendar");
 const { createMetrics } = require("./src/agent/metrics");
 const { generateSignal } = require("./src/strategy/signals");
@@ -699,7 +705,7 @@ const knowledgeRanker = createKnowledgeRanker({
 var _krInstall = knowledgeRanker.install();
 
 // Persistence: atomic save/restore of R-2~R-5 state
-const PERSISTENCE_PATH = path.join(__dirname, ".intelligence-state.json");
+const PERSISTENCE_PATH = process.env.INTEL_STATE_PATH || path.join(__dirname, "state", ".intelligence-state.json");
 const persistence = createPersistence({
   path: PERSISTENCE_PATH,
   hypothesisEngine: hypothesisEngine, experimentEngine: experimentEngine,
@@ -1012,6 +1018,7 @@ const AI_CONSECUTIVE_FAIL_THRESHOLD = Number(process.env.AI_CONSECUTIVE_FAIL_THR
 // --- [P5-2] Recent Fills Ring Buffer ---
 const MAX_RECENT_FILLS = 20;
 const recentFills = [];
+var _lastVix = null; // Cached last VIX from intelligence macro (for killswitch VIX crisis check)
 
 function recordRecentFill(symbol, side, price, quantity, knownPnl) {
   var pnl = null;
@@ -1653,8 +1660,8 @@ async function heldPositionSweep() {
     // [Patch 2026-10-15] KRW-denominated shortage gate: USD holdings must NOT mask KRW=0.
     // Auto-exchange (USD->KRW) exists precisely for this state, so gate on cashKrw itself.
     var CASH_RESCUE_KRW_MIN = Number(process.env.CASH_RESCUE_KRW_MIN || 100000);
-    var cashRescueMode = cashKrw < CASH_RESCUE_KRW_MIN && (totalEquity > 1000000 || positions.length > 0);
     var positions = portfolio.positions.slice().sort(function(a, b) { return (b.marketValue || 0) - (a.marketValue || 0); });
+    var cashRescueMode = cashKrw < CASH_RESCUE_KRW_MIN && (totalEquity > 1000000 || positions.length > 0);
     var reviewed = 0;
     var maxReviews = cashRescueMode ? HELD_SWEEP_MAX_PER_CYCLE * 2 : HELD_SWEEP_MAX_PER_CYCLE;
     for (var pos of positions) {
@@ -2507,6 +2514,9 @@ async function askAI(marketData, opts) {
   if (sym && process.env.INTEL_NEWS_ENABLED !== "false") {
     try {
       intelligenceCtx = await intelligence.gather(sym, callAI);
+      if (intelligenceCtx && intelligenceCtx.macro && typeof intelligenceCtx.macro.vix === "number") {
+        _lastVix = intelligenceCtx.macro.vix;
+      }
     } catch (e) { console.error("[intel] gather failed for " + sym + ": " + e.message); }
     try {
       memoryCtx = tradingMemory.recallSimilar({
@@ -3462,11 +3472,20 @@ async function enforcePositionSizing(input, strategy) {
     }
 
     // [Phase 3.2] Exposure / concentration check
+    // Build flat symbol->sector map from goals (if available) to unify with exposure layer
+    var _sectorMap = {};
+    if (tradingGoals && tradingGoals.sector_mapping) {
+      for (var _sk of Object.keys(tradingGoals.sector_mapping)) {
+        for (var _ss of (tradingGoals.sector_mapping[_sk] || [])) {
+          _sectorMap[String(_ss).toUpperCase()] = _sk;
+        }
+      }
+    }
     const expo = exposure.checkExposure({
       symbol: input.symbol, orderValueKrw: sizing.valueKrw, equity: totalEquity,
       positions: portfolio.positions || [],
       strategy: candleCtx && candleCtx.strategyHint ? candleCtx.strategyHint : null,
-    });
+    }, { sectorMap: Object.keys(_sectorMap).length ? _sectorMap : undefined });
     if (!expo.ok) {
       return { ok: false, reason: "exposure: " + expo.violations.join("; ") };
     }
@@ -4105,11 +4124,15 @@ async function start() {
           var _ksEquity = computeTotalEquityKrw(_ksPortfolio);
           var _ksInvested = (_ksPortfolio.positions || []).reduce(function(s, p) { return s + (p.marketValue || 0); }, 0);
           _ksMetrics.totalExposurePct = _ksEquity > 0 ? (_ksInvested / _ksEquity) * 100 : 0;
-          // Daily loss % from target engine projection
-          var _ksProj = targetEngine.project();
-          if (_ksProj && typeof _ksProj.dailyReturnPct === "number") {
-            _ksMetrics.dailyLossPct = _ksProj.dailyReturnPct < 0 ? Math.abs(_ksProj.dailyReturnPct) : 0;
-          }
+          // Daily loss % from target engine baseline vs current equity
+          try {
+            var _ksProj = targetEngine.project();
+            var _ksBaseline = _ksProj && _ksProj.dailyBaselineEquity;
+            if (_ksBaseline && _ksBaseline > 0 && _ksEquity > 0) {
+              var _ksDailyRet = ((_ksEquity - _ksBaseline) / _ksBaseline) * 100;
+              _ksMetrics.dailyLossPct = _ksDailyRet < 0 ? Math.abs(_ksDailyRet) : 0;
+            }
+          } catch (_e) { /* ignore */ }
         } catch {}
         // Consecutive losses from recent fills ring buffer
         try {
@@ -4134,8 +4157,7 @@ async function start() {
         } catch {}
         // VIX from most recently cached intelligence context (best-effort)
         try {
-          var _ksIntelStats = intelligence.stats();
-          if (_ksIntelStats && _ksIntelStats.lastVix != null) _ksMetrics.vix = _ksIntelStats.lastVix;
+          if (_lastVix != null) _ksMetrics.vix = _lastVix;
         } catch {}
         var _ksResult = killswitch.check(_ksMetrics);
         if (_ksResult.halted) {
@@ -5029,7 +5051,7 @@ async function start() {
     var buys = wt.filter(function(e) { return e.action === "BUY"; }).length;
     var sells = wt.filter(function(e) { return e.action === "SELL"; }).length;
     var errs = wt.filter(function(e) { return !e.ok; }).length;
-    var tr = twrEngine.generateReport();
+    var tr = (typeof twrEngine !== "undefined" && twrEngine && typeof twrEngine.generateReport === "function") ? twrEngine.generateReport() : { cumulative: {} };
     var pj = targetEngine.project();
     var sc = {};
     wt.forEach(function(e) { if (e.symbol) sc[e.symbol] = (sc[e.symbol] || 0) + 1; });
@@ -5105,7 +5127,7 @@ async function start() {
     var buys = mt.filter(function(e) { return e.action === "BUY"; }).length;
     var sells = mt.filter(function(e) { return e.action === "SELL"; }).length;
     var errs = mt.filter(function(e) { return !e.ok; }).length;
-    var tr = twrEngine.generateReport();
+    var tr = (typeof twrEngine !== "undefined" && twrEngine && typeof twrEngine.generateReport === "function") ? twrEngine.generateReport() : { cumulative: {} };
     var pj = targetEngine.project();
     var cr = tr.cumulative && tr.cumulative.return != null ? tr.cumulative.return : "N/A";
     var ot = tr.cumulative && tr.cumulative.onTrack ? "✅" : "❌";
@@ -5400,10 +5422,11 @@ async function start() {
 
   // --- [Phase F] Portfolio Risk Computation (hourly) ---
   const RISK_INTERVAL_MS = Number(process.env.RISK_INTERVAL_MS || 3600000); // 1h
-  var _riskTimer = setInterval(function() {
+  var _riskTimer = setInterval(async function() {
     if (targetEngine.project().halted) return;
     try {
-      const positions = targetEngine.project().positions || [];
+      const _riskPortfolio = await fetchPortfolioContext();
+      const positions = (_riskPortfolio && _riskPortfolio.positions) || [];
       if (positions.length === 0) return;
       // Build diagonal covariance from per-position ATR or default 2% vol
       const vols = positions.map(function(p) {

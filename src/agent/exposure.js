@@ -30,6 +30,7 @@ Object.assign(SECTOR_MAP, {
 function marketOf(symbol) {
   const s = String(symbol).toUpperCase();
   if (/^\d{6}$/.test(s)) return "KR";
+  if (/^\d{4}$/.test(s)) return "JP";
   if (/^[A-Z]+$/.test(s)) return "US";
   return "OTHER";
 }
@@ -47,6 +48,8 @@ function marketOf(symbol) {
  */
 function checkExposure(input, opts = {}) {
   const p = { ...getDefaults(), ...opts };
+  // Allow caller (runner) to supply a richer sector map (e.g. from goals.json)
+  const sectorMap = (opts && opts.sectorMap) || SECTOR_MAP;
   const violations = [];
   const equity = Number(input.equity) || 0;
   if (equity <= 0) return { ok: true, violations, exposures: {} }; // can't assess, let other guards handle
@@ -65,7 +68,7 @@ function checkExposure(input, opts = {}) {
     bySymbol.set(sym, (bySymbol.get(sym) || 0) + value);
     const mkt = marketOf(sym);
     byMarket.set(mkt, (byMarket.get(mkt) || 0) + value);
-    const sec = SECTOR_MAP[sym] || "unknown";
+     const sec = sectorMap[sym] || "unknown";
     bySector.set(sec, (bySector.get(sec) || 0) + value);
     if (pos.strategy) byStrategy.set(pos.strategy, (byStrategy.get(pos.strategy) || 0) + value);
   }
@@ -87,7 +90,7 @@ function checkExposure(input, opts = {}) {
   }
 
   // 3. Sector concentration
-  const sec = SECTOR_MAP[sym] || "unknown";
+     const sec = sectorMap[sym] || "unknown";
   if (sec !== "unknown") {
     const newSectorTotal = (bySector.get(sec) || 0) + orderKrw;
     if ((newSectorTotal / equity) * 100 > p.maxSectorPct) {
