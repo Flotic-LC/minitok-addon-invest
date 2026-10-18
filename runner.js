@@ -781,7 +781,7 @@ function loadGoals() {
 const tradingGoals = loadGoals();
 
 // --- Live trading override: DRY_RUN=false skips Phase 0 calibration ---
-const forceLive = process.env.DRY_RUN === "false" || process.env.DRY_RUN === "0";
+const forceLive = process.env.DRY_RUN === "false" || process.env.DRY_RUN === "0" || process.env.DRY_RUN === "no";
 // [P2-11 FIX] Persist target engine state to durable volume (/app/state) so that
 // phase progression, returnCycles, and haltState survive container recreation.
 // Previously stored under __dirname which lives in the ephemeral container layer
@@ -1692,6 +1692,12 @@ async function heldPositionSweep() {
         _positionInfo: { quantity: pos.quantity, avgPrice: pos.avgPrice || 0, marketValue: pos.marketValue || 0,
           pnlPct: pos.profitLossPct != null ? pos.profitLossPct : (pos.avgPrice > 0 ? ((currentPrice - pos.avgPrice) / pos.avgPrice * 100) : 0) }
       };
+      // [FIX F2.1] Skip non-rescue sweeps when the symbol's market is closed to avoid wasteful LLM calls.
+      var _mkt = (typeof detectMarket === "function" ? detectMarket(sym) : "US");
+      if (!cashRescueMode && !getActiveMarkets().includes(_mkt)) {
+        console.log("[held-sweep] SKIP " + sym + " (market " + _mkt + " closed, not cash-rescue)");
+        continue;
+      }
       var decision = await askAI(marketData, { bypassThrottle: true });
       reviewed++;
       if (!decision) { console.log("[held-sweep] NULL_DECISION " + sym + " (askAI returned null)"); continue; }
@@ -1829,7 +1835,7 @@ async function checkTrailingStops() {
     var portfolioAtrPct = atrCount > 0 ? atrSum / atrCount : 1.5;
     var dynRisk = computeDynamicRisk({ portfolioAtrPct: portfolioAtrPct, recentDrawdownPct: -ddPct });
     // Apply dynamic adjustment to trailing stop percentage
-    var effectiveTrailingPct = TRAILING_STOP_PCT * dynRisk.trailingStopAdjust;
+    var effectiveTrailingPct = TRAILING_STOP_PCT * Math.max(0.5, dynRisk.trailingStopAdjust || 1);
 
     for (var pos of portfolio.positions) {
       var sym = pos.symbol;
@@ -3062,7 +3068,9 @@ const pendingOrders = new Map(); // orderId -> { symbol, side, price, quantity, 
 
 async function monitorPendingOrders() {
   const now = Date.now();
-  for (const [orderId, info] of pendingOrders.entries()) {
+  for (const orderId of [...pendingOrders.keys()]) {
+    const info = pendingOrders.get(orderId);
+    if (!info) continue;
     if (now - info.createdAt > ORDER_MONITOR_TIMEOUT_MS) {
       // [FIX F1.3] Reconcile any partial fill before cancelling.
       try {
@@ -3606,7 +3614,7 @@ const inFlightSymbols = new Set();
 const lastDecisionAt = new Map(); // per-symbol decision cooldown (F1.4)
 // [CASH-RESCUE] Track symbols with queued off-hours SELL orders to prevent duplicates
 const pendingOffHoursSells = new Set();
-const PENDING_SELLS_PATH = "/app/state/pending_offhours_sells.json";
+const PENDING_SELLS_PATH = path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "pending_offhours_sells.json");
 // Restore pending off-hours sells from disk (survives restarts)
 try {
   if (require("fs").existsSync(PENDING_SELLS_PATH)) {
@@ -4676,6 +4684,11 @@ async function start() {
       if (wsNow - wsLastCall < WS_THROTTLE_MS) {
         return;
       }
+      // [FIX F5.2] Cap wsThrottleMap size (LRU) to prevent unbounded growth
+      if (wsThrottleMap.size > 500) {
+        const _oldest = wsThrottleMap.keys().next().value;
+        if (_oldest) wsThrottleMap.delete(_oldest);
+      }
       wsThrottleMap.set(wsSymbol, wsNow);
       console.log("[ws] Calling askAI for " + wsSymbol + " (throttle passed)");
       const decision = await askAI(frame.data);
@@ -5064,18 +5077,32 @@ async function start() {
 
   // --- [P8-1] Start Trailing Stop Monitor (every 90s, offset from max-loss check) ---
   const TRAILING_STOP_CHECK_MS = Number(process.env.TRAILING_STOP_CHECK_MS || 90000);
-  var _trailingTimer = setInterval(function() { checkTrailingStops().catch(function(e) { console.error("[trailing-stop] Timer error: " + e.message); }); }, TRAILING_STOP_CHECK_MS);
+  var _trailingRunning = false;
+  var _trailingTimer = setInterval(function() { if (_trailingRunning) return; _trailingRunning = true; checkTrailingStops().catch(function(e) { console.error("[trailing-stop] Timer error: " + e.message); }).finally(function() { _trailingRunning = false; }); }, TRAILING_STOP_CHECK_MS);
   if (_trailingTimer.unref) _trailingTimer.unref();
   // --- [CASH-RESCUE] Start Held Position Sweep ---
-  var _heldSweepTimer = setInterval(function() { heldPositionSweep().catch(function(e) { console.error("[held-sweep] Timer error: " + e.message); }); }, HELD_SWEEP_INTERVAL_MS);
+  var _heldSweepRunning = false;
+  var _heldSweepTimer = setInterval(function() { if (_heldSweepRunning) return; _heldSweepRunning = true; heldPositionSweep().catch(function(e) { console.error("[held-sweep] Timer error: " + e.message); }).finally(function() { _heldSweepRunning = false; }); }, HELD_SWEEP_INTERVAL_MS);
   // [CASH-RESCUE] Clear pending sells when US market opens
-  var _pendingCleanupTimer = setInterval(function() {
+  var _pendingCleanupTimer = setInterval(async function() {
     try {
       var am = getActiveMarkets();
       if (am && am.includes("US") && pendingOffHoursSells.size > 0) {
-        console.log("[held-sweep] US market open - clearing " + pendingOffHoursSells.size + " pending off-hours sells");
-        pendingOffHoursSells.clear();
-        _savePendingSells();
+        // [FIX F2.2] Only clear symbols whose broker open-order list no longer has a SELL for them.
+        var _cleared = 0;
+        try {
+          const _tok = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+          const _ords = await getOrders(_tok, TOSS_ACCOUNT_SEQ, "OPEN");
+          const _openSells = new Set((_ords.body?.orders || _ords.body || []).filter(function(o){return (o.side||"").toUpperCase()==="SELL";}).map(function(o){return String(o.symbol||"").toUpperCase();}));
+          for (const _s of Array.from(pendingOffHoursSells)) {
+            if (!_openSells.has(_s.toUpperCase())) { pendingOffHoursSells.delete(_s); _cleared++; }
+          }
+        } catch (_e2) {
+          // Fallback: clear all if broker query fails
+          _cleared = pendingOffHoursSells.size;
+          pendingOffHoursSells.clear();
+        }
+        if (_cleared > 0) { _savePendingSells(); console.log("[held-sweep] US market open - cleared " + _cleared + " pending off-hours sells"); }
       }
     } catch (_e) {}
   }, 180000); // [FIX-EXEC-ERR] Reduced from 10min to 3min
@@ -6402,7 +6429,8 @@ function dumpRunnerState() {
       symbolPerformance: Array.from(symbolPerformance.entries()),
       peakPrices: Array.from(peakPrices.entries()),
       atrStopPrices: Array.from(atrStopPrices.entries()), // [Phase 4.3] persist hard stops
-      recentFills: recentFills.slice(), // [P10-4] Persist recent fills across restarts
+       recentFills: recentFills.slice(), // [P10-4] Persist recent fills across restarts
+       cachedFxRates: cachedFxRates, // [FIX F9.4] Persist FX rates across restarts
       aiMetrics: { successes: aiSuccesses, failures: aiFailures },
       adaptiveTargetOffset: adaptiveTargetOffset,
       trailingStopTriggers: trailingStopTriggers,
@@ -6466,7 +6494,11 @@ function restoreRunnerState() {
     if (!fs.existsSync(RUNNER_STATE_PATH)) return;
     var raw = JSON.parse(fs.readFileSync(RUNNER_STATE_PATH, "utf8"));
     if (raw.pendingOrders && Array.isArray(raw.pendingOrders)) {
-      for (var po of raw.pendingOrders) pendingOrders.set(po[0], po[1]);
+      for (var po of raw.pendingOrders) {
+        // [FIX F9.3] Reset createdAt to avoid immediate timeout on restored orders
+        if (po[1] && typeof po[1] === "object") po[1].createdAt = Date.now();
+        pendingOrders.set(po[0], po[1]);
+      }
       console.log("[state] Restored " + raw.pendingOrders.length + " pending orders");
     }
     if (raw.entryPrices && Array.isArray(raw.entryPrices)) {
@@ -6496,6 +6528,11 @@ function restoreRunnerState() {
       recentFills.length = 0;
       for (var rf of raw.recentFills) recentFills.push(rf);
       console.log("[state] Restored " + raw.recentFills.length + " recent fills");
+    }
+    // [FIX F9.4] Restore cached FX rates
+    if (raw.cachedFxRates && typeof raw.cachedFxRates === "object") {
+      cachedFxRates = raw.cachedFxRates;
+      console.log("[state] Restored cached FX rates");
     }
     if (typeof raw.adaptiveTargetOffset === "number") {
       adaptiveTargetOffset = raw.adaptiveTargetOffset;
@@ -6592,8 +6629,8 @@ function restoreRunnerState() {
     // correlationEngine and hypothesisEngine read from eventBus which is already restored above,
     // so their next cycle will rebuild findings naturally. No explicit restore needed.
 
-    // Remove state file after successful restore to prevent stale data on next crash
-    try { fs.unlinkSync(RUNNER_STATE_PATH); } catch {}
+    // [FIX F9.2] Keep a backup copy instead of deleting, for crash-recovery forensics.
+    try { fs.renameSync(RUNNER_STATE_PATH, RUNNER_STATE_PATH + ".bak"); } catch {}
   } catch (e) {
     console.error("[state] Failed to restore: " + e.message);
   }
