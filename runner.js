@@ -5913,18 +5913,7 @@ async function start() {
         } catch (e) {
           res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), metaCognitionError: e.message }));
         }
-    } else if (req.url === "/reflection") {
-      try {
-        const snap = experimentCoordinator && typeof experimentCoordinator.getSnapshot === "function"
-          ? experimentCoordinator.getSnapshot()
-          : { enabled: false };
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, reflection: snap }));
-      } catch (e) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: e.message }));
-      }
-      } else if (req.url === "/knowledge") {
+    } else if (req.url === "/knowledge") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(knowledgeStore.stats()));
       } else if (req.url === "/meta-cognition" || req.url === "/meta-cognition/") {
