@@ -1,0 +1,146 @@
+# =============================================================================
+# Constitution — Inviolable Rules for L4.5 Autonomous Trading Agent
+# =============================================================================
+# HARD CONSTRAINTS for orchestrator, council, and evolution engine.
+# These rules take precedence over any AI-generated strategy.
+# Version: 1.0.0 | Last updated: 2026-10-11
+# =============================================================================
+
+version: "1.0.0"
+
+# --- 1. RISK LIMITS (absolute boundaries, never overridable) ---
+risk_limits:
+  daily_max_loss_pct: 3.0
+  max_single_position_pct: 20.0
+  max_total_exposure_pct: 85.0
+  max_open_positions: 15
+  max_pairwise_correlation: 0.85
+  max_sector_concentration_pct: 40.0
+  min_cash_reserve_pct: 15.0
+  max_single_order_krw: 50000000
+  max_daily_trades: 50
+
+# --- 2. TRADING HOURS ---
+trading_hours:
+  kr:
+    open: "09:00"
+    close: "15:30"
+    timezone: "Asia/Seoul"
+    pre_market_buffer_min: 5
+    post_market_buffer_min: 5
+  us:
+    open: "09:30"
+    close: "16:00"
+    timezone: "America/New_York"
+    pre_market_buffer_min: 5
+    post_market_buffer_min: 5
+  # JP removed: Toss Securities OpenAPI does not support JP market data collection.
+  # JP symbols remain in universe for reference only; P&L uses broker avgPrice fallback.
+  allow_overnight_hold: true
+  block_during_macro_events: true
+  macro_event_buffer_min: 30
+
+# --- 3. APPROVAL GATES (require human confirmation) ---
+approval_gates:
+  new_symbol:
+    require_approval: true
+    notification_channel: "telegram"
+    timeout_sec: 3600
+  large_position:
+    require_approval: true
+    threshold_pct_of_equity: 15.0
+    notification_channel: "telegram"
+    timeout_sec: 1800
+  significant_param_change:
+    require_approval: true
+    max_change_pct: 10.0
+    notification_channel: "telegram"
+    timeout_sec: 7200
+  regime_strategy_change:
+    require_approval: true
+    notification_channel: "telegram"
+    timeout_sec: 3600
+  loss_warning:
+    require_approval: false
+    threshold_pct_of_daily_limit: 80.0
+    notification_channel: "telegram"
+
+# --- 4. SELF-MODIFICATION LIMITS ---
+self_modification:
+  max_daily_param_change_pct: 5.0
+  max_weekly_param_change_pct: 15.0
+  shadow_mode_min_days: 7
+
+  modifiable_params:
+    - "STOP_LOSS_PCT"
+    - "TAKE_PROFIT_PCT"
+    - "TRAILING_STOP_PCT"
+    - "RSI_BUY_THRESHOLD"
+    - "RSI_SELL_THRESHOLD"
+    - "POSITION_SIZE_PCT"
+    - "ADAPTIVE_TARGET_OFFSET"
+
+  protected_params:  # NEVER self-modifiable
+    - "DAILY_MAX_LOSS_PCT"
+    - "MAX_SINGLE_POSITION_PCT"
+    - "MAX_TOTAL_EXPOSURE_PCT"
+    - "MAX_OPEN_POSITIONS"
+    - "MIN_CASH_RESERVE_PCT"
+
+  audit_all_changes: true
+  auto_rollback_on_degradation: true
+  degradation_threshold_pct: 20.0  # win rate drops 20%+ relative
+
+# --- 5. KILLSWITCH ---
+killswitch:
+  immediate_halt:
+    - condition: "daily_loss >= daily_max_loss_pct"
+      reason: "Daily loss limit reached"
+    - condition: "consecutive_losses >= 10"
+      reason: "10 consecutive losing trades"
+    - condition: "api_failures >= 5 AND ai_failures >= 5"
+      reason: "Both API and AI providers failing"
+    - condition: "total_exposure > max_total_exposure_pct * 1.1"
+      reason: "Exposure limit breached by >10%"
+    - condition: "vix > 40"
+      reason: "Extreme market volatility (VIX > 40)"
+  recovery_requires_approval: true
+  min_cooldown_hours: 24
+
+# --- 6. REPORTING ---
+reporting:
+  daily_report:
+    enabled: true
+    channel: "telegram"
+    include: ["pnl", "trades", "win_rate", "regime", "param_changes", "intelligence_summary"]
+  weekly_report:
+    enabled: true
+    channel: "telegram"
+    day: "friday"
+    include: ["strategy_performance", "param_evolution", "memory_insights", "council_decisions"]
+  real_time_alerts:
+    - "killswitch_triggered"
+    - "approval_required"
+    - "api_circuit_breaker"
+    - "large_fill"
+    - "regime_change"
+
+# --- 7. COUNCIL GOVERNANCE (Phase B target) ---
+council:
+  min_members_for_decision: 3
+  roles:
+    strategist:
+      weight: 1.0
+      focus: "signal_strength, entry_timing, position_sizing"
+    risk_manager:
+      weight: 1.5
+      focus: "drawdown, exposure, correlation, volatility"
+    critic:
+      weight: 1.0
+      focus: "devil_advocate, historical_failures, edge_cases"
+  arbiter:
+    model: "qwen-3.8-max"
+    temperature: 0.1
+    veto_power: true
+  consensus_threshold: 0.6
+  default_on_disagreement: "HOLD"

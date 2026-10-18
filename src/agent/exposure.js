@@ -12,6 +12,7 @@ function getDefaults() {
     maxSectorPct: Number(process.env.EXPO_MAX_SECTOR_PCT || 30),
     maxPositions: Number(process.env.EXPO_MAX_POSITIONS || 12),
     maxCorrelatedPct: Number(process.env.EXPO_MAX_CORR_PCT || 25),
+    minCashReservePct: Number(process.env.EXPO_MIN_CASH_RESERVE_PCT || 15),
   };
 }
 const DEFAULTS = Object.freeze(getDefaults());
@@ -106,6 +107,13 @@ function checkExposure(input, opts = {}) {
     if ((newStratTotal / equity) * 100 > p.maxCorrelatedPct) {
       violations.push(`strategy ${input.strategy} would reach ${((newStratTotal / equity) * 100).toFixed(1)}% (max ${p.maxCorrelatedPct}%)`);
     }
+  }
+
+  // 6. Cash reserve (constitution: min_cash_reserve_pct)
+  const newTotalInvested = investedKrw + orderKrw;
+  const maxInvested = equity * (1 - p.minCashReservePct / 100);
+  if (newTotalInvested > maxInvested) {
+    violations.push(`cash reserve would drop below ${p.minCashReservePct}% (invested ${((newTotalInvested / equity) * 100).toFixed(1)}% > ${(100 - p.minCashReservePct).toFixed(1)}% max)`);
   }
 
   return {

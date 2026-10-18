@@ -16,7 +16,7 @@ function getDefaults() {
     riskPctPerTrade: Number(process.env.SIZE_RISK_PCT || 1.0),
     atrMultiplier: Number(process.env.SIZE_ATR_MULT || 2),
     equityFallbackPct: Number(process.env.SIZE_EQUITY_PCT || 4),
-    maxOrderValueKrw: Number(process.env.MAX_ORDER_VALUE_KRW || 300000),
+    maxOrderValueKrw: Number(process.env.MAX_ORDER_VALUE_KRW || 5000000),
     minQty: 1,
   };
 }

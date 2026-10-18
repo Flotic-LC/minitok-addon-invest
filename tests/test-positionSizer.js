@@ -38,8 +38,8 @@ test("FX conversion for overseas symbols", () => {
   const r = sizePosition({ equity: 10_000_000, price: 200, atr: 5, fxRate: 1400 }, { maxOrderValueKrw: 10_000_000 });
   // priceKrw = 280000, riskPerShareKrw = 14000, riskKrw = 100000 -> qty 7
   assert.equal(r.qty, 7);
-  // Default cap (300k) forces qty 1 since 280k <= 300k
-  const capped = sizePosition({ equity: 10_000_000, price: 200, atr: 5, fxRate: 1400 });
+  // Default cap (now 5M) no longer binds for 7 shares (1.96M); pass explicit 300k cap to verify capping
+  const capped = sizePosition({ equity: 10_000_000, price: 200, atr: 5, fxRate: 1400 }, { maxOrderValueKrw: 300000 });
   assert.equal(capped.qty, 1);
   assert.ok(capped.valueKrw <= 300000);
 });
