@@ -1,0 +1,122 @@
+# minitok Production Docker Compose
+# M24 — Production Infrastructure
+# DO NOT modify application containers — use locked M20 image
+#
+# Usage:
+#   docker compose -f docker-compose.production.yml up -d
+#
+# Required files on host:
+#   /etc/minitok/secrets.env (chmod 0600)
+#   /etc/minitok/keys/signing-key.pem
+#   /etc/minitok/keys/public-key.pem
+#   ./Caddyfile
+
+name: minitok-invest
+
+services:
+  # ── invest add-on: autonomous AI trading bot ──
+  invest-bot:
+    build:
+      context: /opt/minitok/addons/invest
+      dockerfile: Dockerfile
+    container_name: minitok-invest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9100:9100"
+    env_file:
+      - /opt/minitok/addons/invest/.env
+    environment:
+      - SIDECAR_URL=http://sidecar:8471
+      # [P10-4] Persist runner state to the durable volume.
+      - STATE_DIR=/app/state
+      # Persist all mutable data under the durable volume (events, memory, knowledge, metrics, audit)
+      - STORE_DIR=/app/state/events
+      - TRADING_MEMORY_DIR=/app/state/.memory
+      - KNOWLEDGE_PATH=/app/state/.knowledge.json
+      - METRICS_PATH=/app/state/.metrics.json
+      - AUDIT_DIR=/app/state/.audit
+      - INTEL_STATE_PATH=/app/state/.intelligence-state.json
+      # [P10-5] Evolution candle source
+      - EVOLUTION_CANDLES_PATH=/app/candles.json
+      - WALK_FORWARD_ENABLED=true
+      # [P10-1] Minimum trades before backtest feedback may tune SL/TP.
+      - BT_MIN_TRADES=20
+      # WTS_UTK / WTS_XSRF are loaded from env_file (.env) — never commit secrets here
+    volumes:
+      - invest-logs:/app/logs
+      - invest-state:/app/state
+    networks:
+      - frontend
+    depends_on:
+      sidecar:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+
+  # ── Macro Data Sidecar: Python FastAPI for macro context ──
+  sidecar:
+    build:
+      context: /opt/minitok/addons/invest/sidecar
+      dockerfile: Dockerfile
+    container_name: minitok-sidecar
+    restart: unless-stopped
+    env_file:
+      - /opt/minitok/addons/invest/.env
+    ports:
+      - "8471:8471"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8471/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 1024M
+        reservations:
+          memory: 256M
+
+  # ── invest sentinel: watchdog + bidirectional Telegram bot ──
+  invest-sentinel:
+    build:
+      context: /opt/minitok/addons/invest
+      dockerfile: Dockerfile.sentinel
+    container_name: minitok-sentinel
+    restart: unless-stopped
+    env_file:
+      - /opt/minitok/addons/invest/.env
+    environment:
+      - DOCKER_ENV=true
+      - BOT_CONTAINER_NAME=minitok-invest
+      - BOT_INTERNAL_URL=http://minitok-invest:9100
+      - BOT_LOG_PATH=/var/log/bot/bot.log
+      - BOT_ERROR_LOG_PATH=/var/log/bot/bot-error.log
+    volumes:
+      - invest-logs:/var/log/bot:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - invest-bot
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+volumes:
+  invest-logs:
+    driver: local
+  invest-state:
+    driver: local
+
+networks:
+  frontend:
+    driver: bridge

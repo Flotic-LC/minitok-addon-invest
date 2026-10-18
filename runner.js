@@ -106,7 +106,7 @@ fileLogger.prune(); // clean up old log files on startup
 // --- [P2-8] Audit logger (synchronous, append-only) ---
 const { createAuditLogger } = require("./src/core/audit-logger");
 const audit = createAuditLogger({
-  dir: path.join(__dirname, ".audit"),
+  dir: process.env.AUDIT_DIR || path.join(__dirname, "state", ".audit"),
   enabled: process.env.AUDIT_LOG_ENABLED !== "false",
 });
 audit.config({ key: "startup", oldValue: null, newValue: "runner.js initializing", source: "runner" });
@@ -122,7 +122,7 @@ const intelligence = createIntelligencePipeline({
   fredApiKey: process.env.INTEL_FRED_API_KEY || "",
 });
 const tradingMemory = createTradingMemory({
-  dir: path.join(__dirname, ".memory"),
+  dir: process.env.TRADING_MEMORY_DIR || path.join(__dirname, "state", ".memory"),
 });
 console.log("[phase-a] Intelligence pipeline enabled=" + intelligence.stats().enabled + ", trading memory entries=" + tradingMemory.stats().totalEntries);
 
@@ -334,7 +334,7 @@ const { createConfidenceCalibrator } = require("./src/ai/confidence");
 const CONFIDENCE_ENABLED = process.env.CONFIDENCE_ENABLED !== "false";
 const confidenceCalibrator = CONFIDENCE_ENABLED ? createConfidenceCalibrator({
   config: {
-    sampleCount: Number(process.env.CONFIDENCE_SAMPLE_COUNT || 3),
+    sampleCount: Number(process.env.CONFIDENCE_SAMPLES || process.env.CONFIDENCE_SAMPLE_COUNT || 3),
     minThreshold: Number(process.env.CONFIDENCE_MIN_THRESHOLD || 0.40),
     skipThreshold: Number(process.env.CONFIDENCE_SKIP_THRESHOLD || 0.20),
     positionScaleFloor: Number(process.env.CONFIDENCE_POSITION_FLOOR || 0.25),
@@ -439,7 +439,7 @@ const eventGuard = createEventGuard();
 
 // [P1-4 Integration] Knowledge store — self-improvement via past outcome feedback
 const { createKnowledgeStore } = require("./src/strategy/knowledge-store");
-const knowledgeStore = createKnowledgeStore({ path: path.join(__dirname, ".knowledge.json") });
+const knowledgeStore = createKnowledgeStore({ path: process.env.KNOWLEDGE_PATH || path.join(__dirname, "state", ".knowledge.json") });
 
 // [P1-5 Integration] Performance monitor — Sharpe/Sortino/MaxDD + Prometheus
 const { createPerformanceMonitor } = require("./src/agent/performance-monitor");
@@ -551,9 +551,9 @@ let universe = null;
 // [Phase 3.1] Latest candle context per symbol for ATR sizing
 const lastCandleCtx = new Map();
 
-const eventStore = createStore({});
+const eventStore = createStore({ dir: process.env.STORE_DIR || path.join(__dirname, "state", "events") });
 const metrics = createMetrics({
-  dumpPath: path.join(__dirname, ".metrics.json"),
+  dumpPath: process.env.METRICS_PATH || path.join(__dirname, "state", ".metrics.json"),
   dumpIntervalMs: Number(process.env.METRICS_DUMP_INTERVAL_MS || 60000),
 });
 metrics.start();
@@ -648,13 +648,18 @@ console.log("[phase-r5] Execution layer wired: paramTuner + trafficSplitter + ac
 
 // --- [Phase S / L4.5] Market Intelligence — RSS/JSON news & sentiment collection ---
 var marketIntel = null;
-try {
-  const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
-  marketIntel = createMarketIntelCollector({ eventBus: eventBus });
-  marketIntel.start();
-  console.log("[phase-s] Market intel collector started (interval=" + marketIntel.stats().tickIntervalMs + "ms, sources=" + marketIntel.sources().length + ")");
-} catch (_miErr) {
-  console.error("[phase-s] Market intel collector FAILED: " + _miErr.message);
+const MARKET_INTEL_ENABLED = process.env.MARKET_INTEL_ENABLED !== "false";
+if (MARKET_INTEL_ENABLED) {
+  try {
+    const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
+    marketIntel = createMarketIntelCollector({ eventBus: eventBus });
+    marketIntel.start();
+    console.log("[phase-s] Market intel collector started (interval=" + marketIntel.stats().tickIntervalMs + "ms, sources=" + marketIntel.sources().length + ")");
+  } catch (e) {
+    console.warn("[phase-s] Market intel unavailable: " + e.message);
+  }
+} else {
+  console.log("[phase-s] Market intel disabled (MARKET_INTEL_ENABLED=false)");
 }
 
 
@@ -1362,7 +1367,7 @@ if (MCP_BRIDGE_ENABLED) {
 }
 
 // --- [P-WebTools] AI web access tools (web_search, web_fetch) for agentic function-calling ---
-const WEB_TOOLS_ENABLED = process.env.WEB_TOOLS_ENABLED !== "false";
+const WEB_TOOLS_ENABLED = process.env.WEB_TOOLS_ENABLED !== "false" && process.env.WEB_SEARCH_ENABLED !== "false";
 let webTools = null;
 if (WEB_TOOLS_ENABLED) {
   try {
@@ -2489,7 +2494,7 @@ async function askAI(marketData, opts) {
   // [Phase A / L4.5] Intelligence pipeline + memory recall (best-effort, never blocks)
   let intelligenceCtx = null;
   let memoryCtx = null;
-  if (sym) {
+  if (sym && process.env.INTEL_NEWS_ENABLED !== "false") {
     try {
       intelligenceCtx = await intelligence.gather(sym, callAI);
     } catch (e) { console.error("[intel] gather failed for " + sym + ": " + e.message); }
@@ -4781,6 +4786,12 @@ async function start() {
       // Official docs confirm only KR and US are supported. Polling JP always returns
       // empty array(0), wasting API quota. JP symbols remain in universe for reference
       // but are excluded from active data collection.
+      // JP data: unsupported by Toss Securities OpenAPI; only broker avgPrice fallback
+      // is used for P&L of held JP positions (see entryPrice resolution in order monitor).
+      if (!pollMarkets._jpWarned && typeof universe !== "undefined" && universe.getJP && universe.getJP().length > 0) {
+        console.warn("[rest-poll] JP market present in universe (" + universe.getJP().length + " symbols) but Toss OpenAPI does not support JP data collection; using broker avgPrice fallback only.");
+        pollMarkets._jpWarned = true;
+      }
 
       // [FIX] US always polls via REST as backup — WS can silently fail (connected but
       // no data delivered). Parallel REST ensures data continuity even when WS is healthy.
