@@ -658,7 +658,7 @@ const MARKET_INTEL_ENABLED = process.env.MARKET_INTEL_ENABLED !== "false";
 if (MARKET_INTEL_ENABLED) {
   try {
     const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
-    marketIntel = createMarketIntelCollector({ eventBus: eventBus });
+    marketIntel = createMarketIntelCollector({ eventBus: eventBus, eventStore: eventStore });
     marketIntel.start();
     console.log("[phase-s] Market intel collector started (interval=" + marketIntel.stats().tickIntervalMs + "ms, sources=" + marketIntel.sources().length + ")");
   } catch (e) {
@@ -1978,7 +1978,14 @@ function invalidatePortfolioCache() {
 }
 
 // [FIX] Sidecar fetch helper with timeout and error handling
+// [FIX] Sidecar macro-context cache (5min TTL) to avoid 8s fetch on every askAI
+var _sidecarCache = { path: null, data: null, ts: 0 };
 async function fetchSidecar(path, options) {
+  // [FIX] Cache macro-context for 5min to avoid 8s fetch on every askAI
+  const _cacheTtl = 5 * 60 * 1000;
+  if (path === "/api/v1/macro-context" && _sidecarCache.path === path && _sidecarCache.data && (Date.now() - _sidecarCache.ts < _cacheTtl)) {
+    return _sidecarCache.data;
+  }
   const SIDECAR_URL = process.env.SIDECAR_URL || "http://localhost:8471";
   const timeout = (options && options.timeout) || 2000;
   
@@ -1992,12 +1999,16 @@ async function fetchSidecar(path, options) {
     });
     
     clearTimeout(timeoutId);
-    
+     
     if (!response.ok) {
       throw new Error("Sidecar returned " + response.status);
     }
-    
-    return await response.json();
+     
+    const _data = await response.json();
+    if (path === "/api/v1/macro-context") {
+      _sidecarCache = { path: path, data: _data, ts: Date.now() };
+    }
+    return _data;
   } catch (err) {
     clearTimeout(timeoutId);
     throw err;
@@ -2514,6 +2525,19 @@ async function askAI(marketData, opts) {
       if (intelligenceCtx && intelligenceCtx.macro && typeof intelligenceCtx.macro.vix === "number") {
         _lastVix = intelligenceCtx.macro.vix;
       }
+      // [FIX] Persist intelligence gather result to event store (survives restarts)
+      try {
+        if (eventStore && typeof eventStore.append === "function" && intelligenceCtx) {
+          eventStore.append("INTEL_GATHER", {
+            symbol: sym,
+            newsCount: intelligenceCtx.news ? intelligenceCtx.news.count : 0,
+            sentiment: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.label : null,
+            regime: intelligenceCtx.macro ? intelligenceCtx.macro.regime : null,
+            vix: intelligenceCtx.macro ? intelligenceCtx.macro.vix : null,
+            ts: new Date().toISOString(),
+          });
+        }
+      } catch (e) { /* best-effort */ }
     } catch (e) { console.error("[intel] gather failed for " + sym + ": " + e.message); }
     try {
       memoryCtx = tradingMemory.recallSimilar({
