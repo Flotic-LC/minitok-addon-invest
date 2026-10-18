@@ -782,6 +782,7 @@ const tradingGoals = loadGoals();
 
 // --- Live trading override: DRY_RUN=false skips Phase 0 calibration ---
 const forceLive = process.env.DRY_RUN === "false" || process.env.DRY_RUN === "0" || process.env.DRY_RUN === "no";
+if (forceLive) process.env.TARGET_MIN_PHASE = process.env.TARGET_MIN_PHASE || "1";
 // [P2-11 FIX] Persist target engine state to durable volume (/app/state) so that
 // phase progression, returnCycles, and haltState survive container recreation.
 // Previously stored under __dirname which lives in the ephemeral container layer
@@ -4336,6 +4337,11 @@ async function start() {
     // Feed initial equity into self-audit so equity_metric_zero rule has baseline
     if (selfAudit && initialEquity > 0) {
       selfAudit.updateEquity(initialEquity);
+    }
+    // [FIX] DRY_RUN=false must keep phase >= 1 even if the first equity snapshot de-escalates.
+    if (forceLive && targetEngine.project().phase < 1) {
+      targetEngine.advancePhaseDirect(1, "DRY_RUN=false sticky override");
+      console.log("[runner] Re-advanced to Phase 1 after de-escalation (DRY_RUN=false)");
     }
     const proj = targetEngine.project();
     console.log("[equity] Baseline set. highWaterEquity=" + proj.highWaterEquity + ", dailyBaseline=" + proj.dailyBaselineEquity + ", phase=" + proj.phase);
