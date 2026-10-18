@@ -2003,11 +2003,13 @@ function loadBacktestFeedback() {
 // Cached for 60 seconds to avoid excessive API calls.
 let portfolioCache = null;
 let portfolioCacheAt = 0;
+let _portfolioGen = 0; // generation counter for fetch/invalidate race guard (F10.2)
 const PORTFOLIO_CACHE_MS = 60000;
 
 // [P5-1] Force-refresh: invalidate cache so next fetch hits the API
 function invalidatePortfolioCache() {
   portfolioCacheAt = 0;
+  _portfolioGen++; // invalidate race guard (F10.2)
 }
 
 // [FIX] Sidecar fetch helper with timeout and error handling
@@ -2050,6 +2052,7 @@ async function fetchPortfolioContext(retryOnTokenRevoked) {
 
 async function _doFetchPortfolio(retryOnTokenRevoked) {
   const now = Date.now();
+  const _fetchGen = _portfolioGen;
 
   // Circuit breaker: if shared auth failures exceeded limit, return stale cache immediately
   if (consecutiveAuthFailures >= MAX_CONSECUTIVE_AUTH_FAILURES) {
@@ -2088,17 +2091,22 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
         };
       }).filter(function(p) { return p.quantity > 0; });
       const openOrders = Array.isArray(ordersResp.body?.orders) ? ordersResp.body.orders : (Array.isArray(ordersResp.body) ? ordersResp.body : []);
-      portfolioCache = {
-        cashKrw: Number(bpResp.body?.cashBuyingPower || 0),
-        cashUsd: Number(bpUsdResp.body?.cashBuyingPower || 0),
-        positions: positions,
-        openOrders: openOrders.map(function(o) {
-          return { orderId: o.orderId, symbol: o.symbol, side: o.side, quantity: o.quantity, price: o.price, status: o.status };
-        }),
-        fetchedAt: new Date().toISOString(),
-        stale: false,
-      };
-      portfolioCacheAt = now;
+      // [FIX F10.2] Apply result only if no invalidation happened during fetch
+      if (_fetchGen === _portfolioGen) {
+        portfolioCache = {
+          cashKrw: Number(bpResp.body?.cashBuyingPower || 0),
+          cashUsd: Number(bpUsdResp.body?.cashBuyingPower || 0),
+          positions: positions,
+          openOrders: openOrders.map(function(o) {
+            return { orderId: o.orderId, symbol: o.symbol, side: o.side, quantity: o.quantity, price: o.price, status: o.status };
+          }),
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+        };
+        portfolioCacheAt = now;
+      } else {
+        console.log("[portfolio] Fetch result discarded (cache invalidated during fetch)");
+      }
       // Success — reset shared failure counter
       consecutiveAuthFailures = 0;
       return portfolioCache;
@@ -3920,6 +3928,9 @@ async function _executeDecisionInner(decision, sym) {
   // [self-audit] Track broker-side rejections for Layer 1 execution_errors_high rule
   if (!result.ok) {
     try { selfAudit.recordExecutionError(); } catch {}
+  } else {
+    // [FIX F7.3] Record successful order value in safety (post-success, not pre-check)
+    try { if (tools._safety && typeof tools._safety.recordOrderSuccess === "function") tools._safety.recordOrderSuccess(input); } catch (e) {}
   }
 
   // [P2-7 Integration] Record trade allocation in multi-account manager
@@ -4637,17 +4648,24 @@ async function start() {
         var _scSym0 = _scParts.length >= 3 ? _scParts.slice(2).join(":") : (frame.data && frame.data.symbol);
         var _scMkt = (_scParts.length >= 2 ? _scParts[1] : "us").toUpperCase();
         var _scPrice = frame.data && Number(frame.data.price);
-        if (_scSym0 && _scPrice > 0) {
-          var _scFx = _scMkt === "KR" ? 1 : (_scMkt === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : (cachedFxRates.FX_USD_KRW || 1350));
-          var _scPf = (typeof portfolioCache !== "undefined" ? portfolioCache : null) || { cashKrw: 0, cashUsd: 0, positions: [] };
-          var _scEq = (typeof computeTotalEquityKrw === "function") ? computeTotalEquityKrw(_scPf) : 0;
-          var _scDec = scalper.onTick(_scSym0, _scPrice, { equityKrw: _scEq, fxRate: _scFx });
-          if (_scDec) {
+        if (_scSym0 && _scPrice > 0 && !inFlightSymbols.has(_scSym0)) {
+          // [FIX F5.1] Gate scalper behind a per-symbol throttle to avoid event-loop starvation
+          var _scLast = scalperLastTick.get(_scSym0) || 0;
+          if (Date.now() - _scLast < Number(process.env.SCALPER_TICK_THROTTLE_MS || 1000)) {
+            // skip this tick
+          } else {
+            scalperLastTick.set(_scSym0, Date.now());
+            var _scFx = _scMkt === "KR" ? 1 : (_scMkt === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : (cachedFxRates.FX_USD_KRW || 1350));
+            var _scPf = (typeof portfolioCache !== "undefined" ? portfolioCache : null) || { cashKrw: 0, cashUsd: 0, positions: [] };
+            var _scEq = (typeof computeTotalEquityKrw === "function") ? computeTotalEquityKrw(_scPf) : 0;
+            var _scDec = scalper.onTick(_scSym0, _scPrice, { equityKrw: _scEq, fxRate: _scFx });
+            if (_scDec) {
             console.log("[scalper] FIRE " + _scDec.action + " " + _scSym0 + " qty=" + _scDec.quantity + " price=" + _scPrice + " reason=" + _scDec.reason);
             try { metrics.counter("scalper_fire"); } catch {}
             await executeDecision(_scDec);
           }
         }
+      }
       } catch (scErr) { console.warn("[scalper] tick error: " + (scErr && scErr.message)); }
 
 
@@ -6436,23 +6454,23 @@ function dumpRunnerState() {
       trailingStopTriggers: trailingStopTriggers,
       atrHardStopTriggers: atrHardStopTriggers,
       // [Phase H] Walk-forward validation history
-      walkForwardHistory: walkForwardValidator ? walkForwardValidator.getHistory() : [],
+      walkForwardHistory: (function(){try{return walkForwardValidator ? walkForwardValidator.getHistory() : [];}catch(e){return [];} })(),
       walkForwardLastResult: walkForwardLastResult,
       // [Phase I / L4.5] Meta-cognition state
-      metaCognition: metaCognition ? metaCognition.stats() : null,
+      metaCognition: (function(){try{return metaCognition ? metaCognition.stats() : null;}catch(e){return null;} })(),
       metaCogDecisionMap: Array.from(metaCogDecisionMap.entries()),
       // [Phase J / L4.5] Self-healing state
-      selfHealing: selfHealer ? selfHealer.state() : null,
+      selfHealing: (function(){try{return selfHealer ? selfHealer.state() : null;}catch(e){return null;} })(),
       // [Phase K / L4.5] Confidence calibration state
-      confidence: confidenceCalibrator ? confidenceCalibrator.state() : null,
+      confidence: (function(){try{return confidenceCalibrator ? confidenceCalibrator.state() : null;}catch(e){return null;} })(),
       // [Phase L / L4.5] Strategy lifecycle state (strategies, history, idCounter)
-      lifecycle: lifecycleManager ? lifecycleManager.state() : null,
+      lifecycle: (function(){try{return lifecycleManager ? lifecycleManager.state() : null;}catch(e){return null;} })(),
       // [Phase M / L4.5] Cross-market scanner state (pairs, history, counters)
-      crossMarket: crossMarketScanner ? crossMarketScanner.state() : null,
+      crossMarket: (function(){try{return crossMarketScanner ? crossMarketScanner.state() : null;}catch(e){return null;} })(),
       // [Phase N / L4.5] Escalation manager state (counters, dailyCounts, cooldowns, history)
-      escalation: escalationManager ? escalationManager.state() : null,
+      escalation: (function(){try{return escalationManager ? escalationManager.state() : null;}catch(e){return null;} })(),
       // [P1-4] Goal bridge state (goalIds, history, counters)
-      goalBridge: goalBridge ? goalBridge.state() : null,
+      goalBridge: (function(){try{return goalBridge ? goalBridge.state() : null;}catch(e){return null;} })(),
       // [Phase R / L4.5] Reflection engine event bus state
       reflectionEventBus: eventBus ? eventBus.state() : null,
       // [Phase R-2] Correlation findings + hypothesis list
