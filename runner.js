@@ -419,7 +419,7 @@ process.on("uncaughtException", function(err) {
 // --- 3. Initialize add-on modules ---
   const { createAgentTools, createTargetEngine, createEquitySnapshotter } = require("./src/agent");
 const { createTossWsClient } = require("./src/ws");
-const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createExchangeOrder, createConditionalOrder, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
+const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
 // [Phase 1] New modules: P&L calculator, durable event store, order manager, market calendar, metrics
 const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket } = require("./src/agent/pnl");
 const scalper = require("./src/agent/scalper");
@@ -1729,27 +1729,10 @@ async function heldPositionSweep() {
         if (usdCash > 10 && cashKrw < 50000) {
           var exchangeAmount = Math.min(usdCash, Math.ceil((100000 - cashKrw) / fxRate));
           if (exchangeAmount < 1) exchangeAmount = Math.min(usdCash, 1);
-          console.log("[auto-exchange] Converting " + exchangeAmount.toFixed(2) + " USD → KRW (rate=" + fxRate + ")");
-          if (AUTO_EXCHANGE_MODE === "execute") {
-          var exchangeResp = await createExchangeOrder(token, TOSS_ACCOUNT_SEQ, {
-            baseCurrency: "USD",
-            quoteCurrency: "KRW",
-            amount: exchangeAmount,
-          });
-          if (exchangeResp.status === 200 || exchangeResp.status === 201) {
-            console.log("[auto-exchange] SUCCESS: " + exchangeAmount.toFixed(2) + " USD → KRW");
-            journalEntry({ type: "AUTO_EXCHANGE", from: "USD", to: "KRW", amount: exchangeAmount, fxRate: fxRate });
-            sendTelegramAlert("💱 *Auto Exchange*\n" + exchangeAmount.toFixed(2) + " USD → KRW\nRate: " + fxRate + "\nReason: cash rescue");
-            // Invalidate portfolio cache so next sweep sees updated cash
-            try { invalidatePortfolioCache(); } catch {}
-          } else {
-            console.warn("[auto-exchange] FAILED: status=" + exchangeResp.status + " body=" + JSON.stringify(exchangeResp.body));
-          }
-          } else {
-            console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested, skip execution");
-            sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD->KRW manual. Rate=" + fxRate + " KRW=" + Math.round(cashKrw), "warn");
-            journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, fxRate: fxRate });
-          }
+          // [FIX] Auto-exchange is not supported by Toss Invest API (404). Alert only.
+          console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested (manual exchange required, Toss API has no FX endpoint)");
+          sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD->KRW manual. Rate=" + fxRate + " KRW=" + Math.round(cashKrw) + "\nToss app에서 수동 환전 필요", "warn");
+          journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, fxRate: fxRate, reason: "no_api_support" });
         }
       } catch (exErr) {
         console.warn("[auto-exchange] Error: " + exErr.message);
@@ -1757,8 +1740,7 @@ async function heldPositionSweep() {
     }
 
     // [AUTO-EXCHANGE KRW->USD] If USD cash is critically low but KRW is available,
-    // auto-convert KRW -> USD so US-market BUY orders can proceed.
-    // Trigger when USD cash < threshold AND KRW cash is comfortably above the rescue floor.
+    // alert for manual conversion (auto-exchange not supported by Toss API).
     try {
       var token2 = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
       var usdBp2 = await getBuyingPower(token2, TOSS_ACCOUNT_SEQ, "USD");
@@ -1766,31 +1748,13 @@ async function heldPositionSweep() {
       var krwBp = await getBuyingPower(token2, TOSS_ACCOUNT_SEQ, "KRW");
       var krwCashNow = Number(krwBp.body?.cashBuyingPower || 0);
       var fx2 = cachedFxRates.FX_USD_KRW || 1350;
-      // USD floor: enough for at least one US order (min order ~ $20). KRW keep floor: 200k.
       var USD_MIN = 50, KRW_KEEP = 200000;
       if (usdCashNow < USD_MIN && krwCashNow > KRW_KEEP + 100000) {
         var exchangeKrw = Math.min(krwCashNow - KRW_KEEP, Math.ceil((200 - usdCashNow) * fx2));
         if (exchangeKrw >= 10000) {
-          console.log("[auto-exchange] Converting " + exchangeKrw + " KRW -> USD (rate=" + fx2 + ")");
-          if (AUTO_EXCHANGE_MODE === "execute") {
-          var exResp2 = await createExchangeOrder(token2, TOSS_ACCOUNT_SEQ, {
-            baseCurrency: "KRW",
-            quoteCurrency: "USD",
-            amount: exchangeKrw,
-          });
-          if (exResp2.status === 200 || exResp2.status === 201) {
-            console.log("[auto-exchange] SUCCESS: " + exchangeKrw + " KRW -> USD");
-            journalEntry({ type: "AUTO_EXCHANGE", from: "KRW", to: "USD", amount: exchangeKrw, fxRate: fx2 });
-            sendTelegramAlert("\u{1F4B1} *Auto Exchange*\n" + exchangeKrw + " KRW -> USD\nRate: " + fx2 + "\nReason: USD liquidity for US buys");
-            try { invalidatePortfolioCache(); } catch {}
-          } else {
-            console.warn("[auto-exchange] KRW->USD FAILED: status=" + exResp2.status + " body=" + JSON.stringify(exResp2.body));
-          }
-          } else {
-            console.log("[auto-exchange] ALERT: KRW->USD " + exchangeKrw + " suggested, skip execution");
-            sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2, "warn");
-            journalEntry({ type: "EXCHANGE_ALERT", from: "KRW", to: "USD", suggestedAmount: exchangeKrw, fxRate: fx2 });
-          }
+          console.log("[auto-exchange] ALERT: KRW->USD " + exchangeKrw + " suggested (manual exchange required)");
+          sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2 + "\nToss app에서 수동 환전 필요", "warn");
+          journalEntry({ type: "EXCHANGE_ALERT", from: "KRW", to: "USD", suggestedAmount: exchangeKrw, fxRate: fx2, reason: "no_api_support" });
         }
       }
     } catch (ex2) {
