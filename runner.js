@@ -2068,6 +2068,9 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
           profitLoss: Number((h.profitLoss?.amount ?? h.profitLoss) || 0),
           profitLossRate: Number(h.profitLoss?.rate || 0),
           profitLossPct: Number(h.profitLoss?.rate || 0) * 100,
+          // [FIX] legacy = position the bot never bought (pre-existing holding).
+          // Bot-initiated positions have an entry in entryPrices (restored from state).
+          legacy: !entryPrices.has(String(h.symbol || h.code || "").toUpperCase()),
         };
       }).filter(function(p) { return p.quantity > 0; });
       const openOrders = Array.isArray(ordersResp.body?.orders) ? ordersResp.body.orders : (Array.isArray(ordersResp.body) ? ordersResp.body : []);
@@ -2397,7 +2400,14 @@ async function askAI(marketData, opts) {
     }
     promptLines.push("Respond with SELL + quantity (full or partial) if exit warranted, or HOLD with reasoning.");
   }
-  promptLines.push("- Respond with valid JSON only, no markdown.");
+   promptLines.push("- Respond with valid JSON only, no markdown.");
+   promptLines.push("");
+   promptLines.push("=== PROFITABILITY GUIDANCE ===");
+   promptLines.push("- Legacy positions (pre-existing holdings the bot did NOT buy) are listed separately as legacySymbols/legacyUnrealizedPnl. Their unrealized gains are NOT your trading performance.");
+   promptLines.push("- Base BUY/SELL decisions on tradeMetrics (trade-only win rate, P&L, profit factor) and current market signals, NOT on total equity or legacy unrealized gains.");
+   promptLines.push("- Do NOT recommend BUY just because legacy positions are profitable. A new BUY must stand on its own expected return.");
+   promptLines.push("- Prefer diversification: avoid adding to a symbol already in heldSymbols if positionCount < targetPositionCount.");
+   promptLines.push("- If underDeployed (deployedPct < targetDeployPct), favor actionable BUY over HOLD, provided quality gates pass.");
   if (AI_MAX_PROFIT) {
     promptLines.push('- Schema: {"action":"BUY"|"SELL"|"HOLD","symbol":"string","quantity":number,"price":number,"reason":"string","strategy":"max_profit"|"standard"}.');
   } else {
@@ -2586,6 +2596,13 @@ async function askAI(marketData, opts) {
       maxSinglePositionPct: Number(_maxPosPct.toFixed(1)),
       heldSymbols: _heldSymbols,
       tooConcentrated: _tooConcentrated,
+      // [FIX] Legacy (pre-existing) vs bot-initiated positions separated to avoid
+      // phantom profitability: legacy unrealized gains must not mask trade losses.
+      legacySymbols: _posList.filter(function(p){return p && p.legacy;}).map(function(p){return String(p.symbol||p.code||"?");}),
+      legacyUnrealizedPnlKrw: Math.round(_posList.filter(function(p){return p && p.legacy;}).reduce(function(s,p){return s + (Number(p.profitLoss||0));},0)),
+      botSymbols: _posList.filter(function(p){return p && !p.legacy;}).map(function(p){return String(p.symbol||p.code||"?");}),
+      // [FIX] Trade-only metrics (bot-initiated trades only) — distinct from total equity
+      tradeMetrics: (function(){ try { var r = perfMonitor.report(); return { totalTrades: r.totalTrades, wins: r.wins, losses: r.losses, winRatePct: r.winRatePct, profitFactor: r.profitFactor, totalPnl: r.totalPnl, avgTradePnl: r.avgTradePnl }; } catch(e){ return null; } })(),
       positions: portfolio.positions,
       openOrders: portfolio.openOrders,
       dataAgeSec: dataAgeSec,

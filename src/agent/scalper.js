@@ -17,7 +17,7 @@ const SCALPER_WINDOW_MS = Number(process.env.SCALPER_WINDOW_MS || 8000); // pric
 const SCALPER_MIN_TICKS = Number(process.env.SCALPER_MIN_TICKS || 3);
 const SCALPER_TAKE_PCT = Number(process.env.SCALPER_TAKE_PCT || 0.9);
 const SCALPER_STOP_PCT = Number(process.env.SCALPER_STOP_PCT || -0.5);
-const SCALPER_MAX_POSITION_PCT = Number(process.env.SCALPER_MAX_POSITION_PCT || 8); // % equity per scalp
+const SCALPER_MAX_POSITION_PCT = Number(process.env.SCALPER_MAX_POSITION_PCT || 10); // % equity per scalp
 
 // Per-symbol state
 const state = new Map(); // sym -> { armed, ticks: [{p, ts}], lastFireAt, firesToday, day, openScalp }
