@@ -2048,7 +2048,8 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
   // Circuit breaker: if shared auth failures exceeded limit, return stale cache immediately
   if (consecutiveAuthFailures >= MAX_CONSECUTIVE_AUTH_FAILURES) {
     console.warn("[portfolio] Circuit breaker OPEN (" + consecutiveAuthFailures + " auth failures). Returning stale cache.");
-    return portfolioCache || { cashKrw: 0, cashUsd: 0, positions: [], openOrders: [], fetchedAt: null };
+    const _stale = portfolioCache || { cashKrw: 0, cashUsd: 0, positions: [], openOrders: [], fetchedAt: null };
+    return Object.assign({}, _stale, { stale: true, staleSince: portfolioCacheAt || null });
   }
 
   const maxAttempts = retryOnTokenRevoked === false ? 1 : 2;
@@ -2089,6 +2090,7 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
           return { orderId: o.orderId, symbol: o.symbol, side: o.side, quantity: o.quantity, price: o.price, status: o.status };
         }),
         fetchedAt: new Date().toISOString(),
+        stale: false,
       };
       portfolioCacheAt = now;
       // Success — reset shared failure counter
@@ -3062,6 +3064,19 @@ async function monitorPendingOrders() {
   const now = Date.now();
   for (const [orderId, info] of pendingOrders.entries()) {
     if (now - info.createdAt > ORDER_MONITOR_TIMEOUT_MS) {
+      // [FIX F1.3] Reconcile any partial fill before cancelling.
+      try {
+        const _tToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+        const _tResp = await getOrder(_tToken, TOSS_ACCOUNT_SEQ, orderId);
+        const _tFilled = Number(_tResp.body?.filledQuantity || _tResp.body?.executedQuantity || 0);
+        if (_tFilled > 0 && !info.partialLogged) {
+          console.log("[order-monitor] Order " + orderId + " timed out but was PARTIALLY FILLED: " + _tFilled + "/" + (info.originalQuantity || info.quantity));
+          info.filledQuantity = _tFilled;
+          info.partialLogged = true;
+          // Record the partial fill as a real fill (best-effort) so P&L is not lost
+          try { recordRecentFill(info.symbol, info.side, Number(_tResp.body?.filledPrice || _tResp.body?.avgFilledPrice || info.price || 0), _tFilled, null); } catch (e) {}
+        }
+      } catch (e) { console.error("[order-monitor] pre-cancel status check failed: " + e.message); }
       // Timeout: cancel the order
       console.log("[order-monitor] Order " + orderId + " unfilled after " + Math.round(ORDER_MONITOR_TIMEOUT_MS / 60000) + "min. Cancelling...");
       try {
@@ -3087,8 +3102,10 @@ async function monitorPendingOrders() {
           info.partialLogged = true;
           info.filledQuantity = filledQty;
         }
-        // Update tracked quantity to remaining so timeout/slippage calculations stay accurate
-        info.quantity = remainingQty > 0 ? remainingQty : info.quantity;
+        // [FIX F1.2] Keep originalQuantity immutable; track remaining separately.
+        // Overwriting info.quantity corrupts final P&L when a partial fill later completes.
+        info.remainingQty = remainingQty > 0 ? remainingQty : 0;
+        info.filledQty = filledQty;
         continue;
       }
       if (status === "FILLED" || status === "COMPLETED") {
@@ -3180,7 +3197,8 @@ async function monitorPendingOrders() {
             } else if (market === "JP") {
               fxRate = cachedFxRates.FX_JPY_KRW || 9;
             }
-            var pnlBreakdown = computeRoundTripPnl({ symbol: info.symbol, entryPrice, exitPrice: fillPrice, quantity: info.quantity, fxRate, fxRateEntry: fxRate, fxRateExit: fxRate, market, strategy: info._strategy || "standard" });
+            var _fillQty = info.originalQuantity || info.quantity;
+            var pnlBreakdown = computeRoundTripPnl({ symbol: info.symbol, entryPrice, exitPrice: fillPrice, quantity: _fillQty, fxRate, fxRateEntry: fxRate, fxRateExit: fxRate, market, strategy: info._strategy || "standard" });
             sellPnl = pnlBreakdown.netPnl;
             recordSymbolOutcome(info.symbol, sellPnl);
           }
@@ -3246,7 +3264,7 @@ async function monitorPendingOrders() {
         // [P5-1] Invalidate portfolio cache after fill so next AI decision sees updated positions/cash
         invalidatePortfolioCache();
         // [P5-2] Record fill for AI context (pass pre-computed P&L to avoid stale entryPrices lookup)
-        recordRecentFill(info.symbol, info.side, fillPrice, info.quantity, sellPnl);
+        recordRecentFill(info.symbol, info.side, fillPrice, (_fillQty || info.quantity), sellPnl);
         // [Phase E] Record fill in strategy orchestrator for performance tracking
         try {
           const orchStrategy = info._strategy || "base_signals";
@@ -3585,6 +3603,7 @@ function normalizeTickPrice(symbol, price) {
 
 // --- [P7-2] Concurrency Guard: prevent duplicate in-flight orders for same symbol ---
 const inFlightSymbols = new Set();
+const lastDecisionAt = new Map(); // per-symbol decision cooldown (F1.4)
 // [CASH-RESCUE] Track symbols with queued off-hours SELL orders to prevent duplicates
 const pendingOffHoursSells = new Set();
 const PENDING_SELLS_PATH = "/app/state/pending_offhours_sells.json";
@@ -3608,6 +3627,24 @@ function _savePendingSells() {
 async function executeDecision(decision) {
   if (!decision || decision.action === "HOLD" || !decision.symbol) return;
   var sym = String(decision.symbol).toUpperCase();
+  // [FIX F8.3] Reject hallucinated symbols: BUY only for universe members; SELL only for held positions.
+  if (decision.action === "BUY" && typeof universe !== "undefined" && universe && typeof universe.symbols === "object" && !universe.symbols.has(sym)) {
+    console.warn("[exec] Rejected BUY for unknown symbol: " + sym);
+    journalEntry({ type: "EXEC_REJECTED", symbol: sym, action: "BUY", reason: "unknown_symbol" });
+    return;
+  }
+  if (decision.action === "SELL") {
+    var _hasPos = false;
+    try {
+      var _sellPortfolio = await fetchPortfolioContext();
+      _hasPos = (_sellPortfolio.positions || []).some(function(p) { return String(p.symbol || p.code || "").toUpperCase() === sym && Number(p.quantity || 0) > 0; });
+    } catch (e) {}
+    if (!_hasPos) {
+      console.warn("[exec] Rejected SELL for symbol with no position: " + sym);
+      journalEntry({ type: "EXEC_REJECTED", symbol: sym, action: "SELL", reason: "no_position" });
+      return;
+    }
+  }
   // [self-audit] Record actionable decision for Layer 1 hold-dominant / activity metrics
   try { selfAudit.recordDecision(decision.action); } catch {}
   // [Phase R / L4.5] Emit decision signal for Reflection Engine
@@ -3629,6 +3666,14 @@ async function executeDecision(decision) {
       });
     }
   } catch { /* best-effort */ }
+  // [FIX F1.4] Per-symbol decision cooldown to prevent double-execution when scalper
+  // and LLM both act on the same WS frame.
+  var _lastDecAt = lastDecisionAt.get(sym) || 0;
+  if (Date.now() - _lastDecAt < 5000) {
+    console.log("[exec] Skipped: " + sym + " decision cooldown (last " + (Date.now() - _lastDecAt) + "ms ago)");
+    return;
+  }
+  lastDecisionAt.set(sym, Date.now());
   if (inFlightSymbols.has(sym)) {
     console.log("[exec] Skipped: " + sym + " already has an in-flight order");
     return;
@@ -3944,20 +3989,24 @@ async function _executeDecisionInner(decision, sym) {
   }
 
   // [FIX #4] Track order for fill monitoring
-  if (result.ok && result.data && result.data.order && result.data.order.orderId) {
-    pendingOrders.set(result.data.order.orderId, {
+  if (result.ok && result.data && result.data.order) {
+    const _oid = result.data.order.orderId || ("fallback:" + input.symbol + ":" + input.side + ":" + Date.now());
+    if (!result.data.order.orderId) {
+      console.warn("[exec] ORDER_UNTRACKED: broker returned success without orderId for " + input.symbol + " " + input.side + " — scheduling 30s resync");
+      journalEntry({ type: "ORDER_UNTRACKED", symbol: input.symbol, side: input.side, quantity: input.quantity, price: input.price });
+      setTimeout(function() { try { fetchPortfolioContext(true); } catch (e) {} }, 30000);
+    }
+    pendingOrders.set(_oid, {
       symbol: input.symbol,
       side: input.side,
       price: input.price,
       quantity: input.quantity,
+      originalQuantity: input.quantity,
       createdAt: Date.now(),
       _strategy: input._strategy,
       _decisionSource: input._decisionSource,
     });
-    // [P0-FIX] Removed redundant orderManager.track() — orderManager.poll() is never called,
-    // causing all tracked orders to accumulate permanently in its internal Map.
-    // The pendingOrders Map + monitorPendingOrders() already handles full lifecycle.
-    console.log("[exec] Tracking order " + result.data.order.orderId + " for fill monitoring");
+    console.log("[exec] Tracking order " + _oid + " for fill monitoring");
   }
 }
 
@@ -4559,6 +4608,13 @@ async function start() {
     },
     onMessage: async function(frame) {
       if (frame.type !== "message" || !frame.data) return;
+      // [FIX F6.3] personal:order frames: invalidate portfolio cache (fill happened) and do not run AI/scalper.
+      var _poTopic = (frame.topic || "").toLowerCase();
+      if (_poTopic.indexOf("personal:order") === 0 || _poTopic.indexOf("personal:order") !== -1) {
+        try { invalidatePortfolioCache(); } catch (e) {}
+        console.log("[ws] personal:order frame received — portfolio cache invalidated");
+        return;
+      }
       _wsFrameCount++;
       wsLastMessageAt = Date.now();
       // [FIX] Record price reception for self-audit — previously only REST path called this,
@@ -4666,7 +4722,17 @@ async function start() {
     // invalidate the freshly-minted WS token (token-revoked → 401 loop).
     // Order state is synced by the main polling loop instead.
     onNeedResync: async function() {
-      console.log("[ws] Reconnection detected. Skipping REST resync to protect WS token.");
+      console.log("[ws] Reconnection detected. Scheduling delayed REST resync (10s) to avoid token contention.");
+      // [FIX F5.3] Delayed resync to recover fills that happened during disconnect.
+      setTimeout(async function() {
+        try {
+          invalidatePortfolioCache();
+          await fetchPortfolioContext(true);
+          console.log("[ws] Post-reconnect portfolio resync complete.");
+        } catch (e) {
+          console.warn("[ws] Post-reconnect resync failed: " + (e && e.message));
+        }
+      }, 10000);
     },
   });
 
@@ -5367,7 +5433,12 @@ async function start() {
           }
         } catch (e) {
           console.error("[phase-h] Walk-forward validation error: " + e.message);
-          // Continue with evolution on validation error (fail-open)
+          if (process.env.EVOLUTION_FAIL_CLOSED !== "false") {
+            console.warn("[phase-h] Fail-closed: blocking evolved parameter deployment due to validation error");
+            sendTelegramAlert("🚫 Walk-Forward validation error — blocking deployment.\n" + e.message, "warning");
+            return;
+          }
+          // fail-open only if explicitly disabled
         }
       }
 

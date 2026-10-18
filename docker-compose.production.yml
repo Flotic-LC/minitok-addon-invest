@@ -38,6 +38,7 @@ services:
       - INTEL_STATE_PATH=/app/state/.intelligence-state.json
       # [P10-5] Evolution candle source
       - EVOLUTION_CANDLES_PATH=/app/candles.json
+      - EVOLUTION_ENABLED=true
       - WALK_FORWARD_ENABLED=true
       # [P10-1] Minimum trades before backtest feedback may tune SL/TP.
       - BT_MIN_TRADES=20
