@@ -5497,9 +5497,9 @@ async function start() {
 
     // Schedule first cycle after 5 minutes, then every EVOLUTION_INTERVAL_HOURS
     const intervalMs = EVOLUTION_INTERVAL_HOURS * 3600 * 1000;
-    var _evolutionTimer = setInterval(runEvolutionCycle, intervalMs);
+    var _evolutionTimer = setInterval(function() { setImmediate(runEvolutionCycle); }, intervalMs);
     if (_evolutionTimer.unref) _evolutionTimer.unref();
-    setTimeout(runEvolutionCycle, 5 * 60 * 1000);
+    setTimeout(function() { setImmediate(runEvolutionCycle); }, 5 * 60 * 1000);
     console.log("[phase-d] Evolution cycle scheduled (interval=" + EVOLUTION_INTERVAL_HOURS + "h, first run in 5min)");
   }
 
