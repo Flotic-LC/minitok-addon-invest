@@ -1979,7 +1979,17 @@ function invalidatePortfolioCache() {
 
 // [FIX] Sidecar fetch helper with timeout and error handling
 // [FIX] Sidecar macro-context cache (5min TTL) to avoid 8s fetch on every askAI
+// [FIX] Persist sidecar cache to disk so it survives restarts
+const _SIDECAR_CACHE_PATH = path.join(process.env.STATE_DIR || path.join(__dirname, "state"), ".sidecar-cache.json");
 var _sidecarCache = { path: null, data: null, ts: 0 };
+// Restore from disk on startup
+try {
+  const fs = require("fs");
+  if (fs.existsSync(_SIDECAR_CACHE_PATH)) {
+    const raw = JSON.parse(fs.readFileSync(_SIDECAR_CACHE_PATH, "utf8"));
+    if (raw && raw.data && raw.ts) { _sidecarCache = raw; }
+  }
+} catch (e) { /* ignore */ }
 async function fetchSidecar(path, options) {
   // [FIX] Cache macro-context for 5min to avoid 8s fetch on every askAI
   const _cacheTtl = 5 * 60 * 1000;
@@ -2007,6 +2017,8 @@ async function fetchSidecar(path, options) {
     const _data = await response.json();
     if (path === "/api/v1/macro-context") {
       _sidecarCache = { path: path, data: _data, ts: Date.now() };
+      // [FIX] Persist to disk
+      try { require("fs").writeFileSync(_SIDECAR_CACHE_PATH, JSON.stringify(_sidecarCache)); } catch (e) { /* ignore */ }
     }
     return _data;
   } catch (err) {
@@ -2804,9 +2816,27 @@ async function askAI(marketData, opts) {
       result._metaCogCouncil = null;
     } catch (e) { console.error("[council] ctx attach failed: " + e.message); }
   }
+  // [FIX] Persist AI decision context to event store (survives restarts, forensics)
+  if (result && sym && eventStore && typeof eventStore.append === "function") {
+    try {
+      eventStore.append("AI_DECISION", {
+        symbol: sym,
+        action: result.action,
+        confidence: result.confidence != null ? result.confidence : null,
+        strategy: result.strategy || null,
+        reason: result.reason ? String(result.reason).slice(0, 300) : null,
+        price: result.price != null ? result.price : null,
+        quantity: result.quantity != null ? result.quantity : null,
+        intelligence: intelligenceCtx ? { regime: intelligenceCtx.macro ? intelligenceCtx.macro.regime : null, vix: intelligenceCtx.macro ? intelligenceCtx.macro.vix : null, sentiment: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.label : null } : null,
+        marketIntel: marketData.marketIntel ? { newsCount: (marketData.marketIntel.news || []).length, fearGreed: marketData.marketIntel.sentiment ? marketData.marketIntel.sentiment.score : null } : null,
+        sidecarSentiment: marketData.sidecarSentiment || null,
+        ts: new Date().toISOString(),
+      });
+    } catch (e) { /* best-effort */ }
+  }
   return result;
 }
-
+ 
 // --- [P0-3] Multi-Provider LLM Router (replaces inline callAI) ---
 // Builds provider list from minitok.yml, primary first, with circuit breaker
 // and health tracking via src/ai/provider-router.
