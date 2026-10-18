@@ -2281,6 +2281,22 @@ async function askAI(marketData, opts) {
     console.warn("[sidecar] Failed to fetch macro context: " + (sidecarErr && sidecarErr.message));
     marketData.macroContext = {};
   }
+  // [FIX] Fetch sidecar sentiment for the symbol (best-effort)
+  try {
+    const _sym = marketData && (marketData.symbol || marketData.code);
+    if (_sym) {
+      const _sent = await fetchSidecar("/api/v1/sentiment/" + encodeURIComponent(_sym), { timeout: 5000 });
+      if (_sent && typeof _sent === "object") marketData.sidecarSentiment = _sent;
+    }
+  } catch (e) { /* best-effort */ }
+  // [FIX] Wire market-intel RSS news + Fear&Greed into AI context (was only on eventBus)
+  try {
+    if (marketIntel && typeof marketIntel.latestNews === "function") {
+      var _miNews = marketIntel.latestNews({ limit: 8 });
+      var _miSent = marketIntel.sentiment();
+      marketData.marketIntel = { news: _miNews, sentiment: _miSent, stats: marketIntel.stats() };
+    }
+  } catch (e) { /* best-effort */ }
 
   // [P3-3] Check AI decision cache before making LLM call
   const sym = marketData && (marketData.symbol || marketData.code);
@@ -2648,15 +2664,25 @@ async function askAI(marketData, opts) {
     recentWinRate: computeRecentWinRate(),
     // [Phase A / L4.5] Intelligence + memory context for L4.5 cognition
     intelligence: intelligenceCtx ? {
-      regime: intelligenceCtx.macro ? intelligenceCtx.macro.regime : null,
-      sentiment: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.label : null,
+      regime: intelligenceCtx.macro ? intelligenceCtx.macro.regime : (marketData.macroContext ? marketData.macroContext.regime : null),
+      sentiment: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.label : (marketData.marketIntel && marketData.marketIntel.sentiment ? marketData.marketIntel.sentiment.label : null),
       bullBearRatio: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.bullBearRatio : null,
       newsSummary: intelligenceCtx.news ? intelligenceCtx.news.summary : null,
-      topHeadlines: intelligenceCtx.news ? intelligenceCtx.news.topHeadlines : null,
-      fedFundsRate: intelligenceCtx.macro ? intelligenceCtx.macro.fedFundsRate : null,
-      vix: intelligenceCtx.macro ? intelligenceCtx.macro.vix : null,
+      topHeadlines: (intelligenceCtx.news && intelligenceCtx.news.topHeadlines) ? intelligenceCtx.news.topHeadlines : (marketData.marketIntel && marketData.marketIntel.news ? marketData.marketIntel.news.map(function(n){return n.title;}).slice(0,3) : null),
+      fedFundsRate: intelligenceCtx.macro ? intelligenceCtx.macro.fedFundsRate : (marketData.macroContext ? marketData.macroContext.fedFundsRate : null),
+      vix: intelligenceCtx.macro ? intelligenceCtx.macro.vix : (marketData.macroContext ? marketData.macroContext.vix : null),
+      sidecarSentiment: marketData.sidecarSentiment || null,
+      marketIntelNews: marketData.marketIntel ? marketData.marketIntel.news : null,
+      marketIntelFearGreed: marketData.marketIntel ? marketData.marketIntel.sentiment : null,
       gatherMs: intelligenceCtx.gatherMs,
-    } : null,
+    } : (marketData.marketIntel ? {
+      regime: marketData.macroContext ? marketData.macroContext.regime : null,
+      sentiment: marketData.marketIntel.sentiment ? marketData.marketIntel.sentiment.label : null,
+      topHeadlines: marketData.marketIntel.news ? marketData.marketIntel.news.map(function(n){return n.title;}).slice(0,3) : null,
+      vix: marketData.macroContext ? marketData.macroContext.vix : null,
+      marketIntelNews: marketData.marketIntel.news,
+      marketIntelFearGreed: marketData.marketIntel.sentiment,
+    } : null),
     similarExperiences: memoryCtx && memoryCtx.length > 0 ? memoryCtx.map(function(m) {
       return { symbol: m.symbol, action: m.action, regime: m.regime, pnl: m.pnl, outcome: m.outcome, similarityScore: m.similarityScore, ts: m.ts };
     }) : null,
