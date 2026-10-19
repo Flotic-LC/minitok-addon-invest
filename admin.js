@@ -94,8 +94,12 @@ function log(msg) {
   try { audit.custom("admin", { message: msg }); } catch {}
 }
 
-function exec(cmd) {
+const { execFileSync } = require("child_process");
+function exec(cmd, args) {
   try {
+    if (Array.isArray(args)) {
+      return execFileSync(cmd, args, { encoding: "utf8", timeout: 15000 }).trim();
+    }
     return execSync(cmd, { encoding: "utf8", timeout: 15000 }).trim();
   } catch (e) {
     return null;
@@ -134,9 +138,9 @@ function restartService() {
   if (IS_DOCKER) {
     // Inside Docker: use docker-cli (mounted docker.sock) to restart the bot container
     log("Docker environment detected. Restarting container: " + BOT_CONTAINER_NAME);
-    return exec(`docker restart ${BOT_CONTAINER_NAME}`);
+    return exec("docker", ["restart", BOT_CONTAINER_NAME]);
   }
-  return exec(`systemctl restart ${BOT_SERVICE}`);
+    return exec("systemctl", ["restart", BOT_SERVICE]);
 }
 
 // [P2-9 FIX] Cross-platform log reading
@@ -146,7 +150,7 @@ function readRecentLogs(lineCount, logPath) {
     const psCmd = `powershell -Command "Get-Content '${logPath}' -Tail ${lineCount} -ErrorAction SilentlyContinue"`;
     return exec(psCmd) || "";
   } else {
-    return exec(`tail -${lineCount} ${logPath} 2>/dev/null`) || "";
+    return exec("tail", ["-" + lineCount, logPath]) || "";
   }
 }
 
@@ -1004,6 +1008,7 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
 
   if (cmd === "/halt-state") {
     // [P2-11] Show target engine halt/phase state
+    audit.custom("admin_action", { action: "halt-state", chatId: String(chatId) });
     const st = await adminFetchFromRunner("/admin/state");
     if (st.error) return replyToChat(chatId, "❌ " + st.error);
     const j = st.json || {};
@@ -1044,7 +1049,7 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
 
   if (cmd === "/approve") {
     if (!isAdminChat(chatId)) return replyToChat(chatId, "🚫 Admin only.");
-    const id = args[0];
+    const id = (args[0] || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
     if (!id) return replyToChat(chatId, "Usage: /approve <approval_id>");
     const r = await adminFetchFromRunner("/admin/approvals/" + encodeURIComponent(id) + "/approve", "POST", { approver: "admin-bot:" + chatId });
     if (r.error) return replyToChat(chatId, "❌ " + r.error);
@@ -1054,9 +1059,9 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
 
   if (cmd === "/reject") {
     if (!isAdminChat(chatId)) return replyToChat(chatId, "🚫 Admin only.");
-    const id = args[0];
+    const id = (args[0] || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
     if (!id) return replyToChat(chatId, "Usage: /reject <approval_id> [reason]");
-    const reason = args.slice(1).join(" ") || null;
+    const reason = args.slice(1).join(" ").slice(0, 500) || null;
     const r = await adminFetchFromRunner("/admin/approvals/" + encodeURIComponent(id) + "/reject", "POST", { approver: "admin-bot:" + chatId, reason: reason });
     if (r.error) return replyToChat(chatId, "❌ " + r.error);
     if (r.json && r.json.ok) return replyToChat(chatId, "✅ Rejected `" + id + "`");
@@ -1092,7 +1097,7 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
 
   if (cmd === "/cline") {
     if (!isAdminChat(chatId)) return replyToChat(chatId, "🚫 Admin only.");
-    const task = args.join(" ").trim();
+    const task = args.join(" ").trim().slice(0, 2000);
     if (!task) return replyToChat(chatId, "Usage: /cline <task description>");
     await replyToChat(chatId, "🤖 Running cline… (may take up to 2 min)");
     const clineArgs = ["--yolo", "--timeout", "120"];
@@ -1101,7 +1106,7 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
     let output = "";
     let ok = true;
     try {
-      output = execSync("cline " + clineArgs.map(function(a) { return JSON.stringify(a); }).join(" "), {
+      output = execFileSync("cline", clineArgs, {
         cwd: "/app",
         encoding: "utf8",
         timeout: 130000,
@@ -1140,8 +1145,9 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
   if (cmd === "/gitstatus") {
     if (!isAdminChat(chatId)) return replyToChat(chatId, "🚫 Admin only.");
     try {
-      const log = execSync("git log --oneline -5", { cwd: "/app", encoding: "utf8", timeout: 5000 }).trim();
-      const status = execSync("git status --short", { cwd: "/app", encoding: "utf8", timeout: 5000 }).trim();
+      const log = execFileSync("git", ["log", "--oneline", "-5"], { cwd: "/app", encoding: "utf8", timeout: 5000 }).trim();
+      const status = execFileSync("git", ["status", "--short"], { cwd: "/app", encoding: "utf8", timeout: 5000 }).trim();
+      audit.custom("admin_action", { action: "git-status", chatId: String(chatId), result: "ok" });
       return replyToChat(chatId, "📜 *Git (container)*\n```\n" + (log || "(no commits)") + "\n---\n" + (status || "(clean)") + "\n```", { parseMode: "" });
     } catch (e) { return replyToChat(chatId, "❌ " + String(e.message || e).substring(0, 200)); }
   }
@@ -1153,11 +1159,11 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
     if (!remote) return replyToChat(chatId, "⚠️ GIT_REMOTE_URL not set. Configure to enable push.");
     try {
       // Ensure remote configured
-      try { execSync("git remote remove origin", { cwd: "/app", encoding: "utf8", timeout: 5000 }); } catch {}
+      try { execFileSync("git", ["remote", "remove", "origin"], { cwd: "/app", encoding: "utf8", timeout: 5000 }); } catch {}
       const authedUrl = token ? remote.replace("https://", "https://" + token + "@") : remote;
-      execSync("git remote add origin " + JSON.stringify(authedUrl), { cwd: "/app", encoding: "utf8", timeout: 5000 });
+      execFileSync("git", ["remote", "add", "origin", authedUrl], { cwd: "/app", encoding: "utf8", timeout: 5000 });
       const branch = process.env.GIT_BRANCH || "main";
-      execSync("git push -u origin HEAD:" + branch + " --force", { cwd: "/app", encoding: "utf8", timeout: 60000 });
+      execFileSync("git", ["push", "-u", "origin", "HEAD:" + branch, "--force"], { cwd: "/app", encoding: "utf8", timeout: 60000 });
       audit.custom("admin_action", { action: "git-push", chatId: String(chatId), result: "ok" });
       return replyToChat(chatId, "✅ Pushed to " + remote + " (branch " + branch + "). CI/CD should build+deploy.");
     } catch (e) { return replyToChat(chatId, "❌ push failed: " + String(e.message || e).substring(0, 300)); }

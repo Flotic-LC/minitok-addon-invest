@@ -16,6 +16,14 @@ jobs:
       - name: Build admin image
         run: docker build -f Dockerfile.admin -t minitok-admin:${{ github.sha }} .
 
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: minitok-admin:${{ github.sha }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+
       - name: Save image
         run: docker save minitok-admin:${{ github.sha }} | gzip > admin-image.tar.gz
 
