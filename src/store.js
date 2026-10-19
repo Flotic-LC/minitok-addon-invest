@@ -65,7 +65,7 @@ function createStore(options = {}) {
     const types = q.types ? new Set(Array.isArray(q.types) ? q.types : [q.types]) : null;
     const sinceTs = q.sinceTs ? new Date(q.sinceTs).getTime() : 0;
     const files = listFiles().reverse(); // newest day first
-    const out = [];
+    const collected = []; // newest-first order
     for (const f of files) {
       let lines;
       try { lines = fs.readFileSync(path.join(dir, f), "utf8").split("\n"); } catch { continue; }
@@ -76,11 +76,14 @@ function createStore(options = {}) {
         try { rec = JSON.parse(line); } catch { continue; }
         if (types && !types.has(rec.type)) continue;
         if (sinceTs && new Date(rec.ts).getTime() < sinceTs) continue;
-        out.unshift(rec);
-        if (out.length >= limit) return out;
+        collected.push(rec);
+        if (collected.length >= limit) break;
       }
+      if (collected.length >= limit) break;
     }
-    return out;
+    // Reverse to chronological order
+    collected.reverse();
+    return collected.slice(0, limit);
   }
 
   /** Delete event files older than retention. Returns count removed. */
