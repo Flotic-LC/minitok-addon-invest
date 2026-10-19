@@ -2290,6 +2290,18 @@ async function askAI(marketData, opts) {
   if (!bypassThrottle && now - lastAiCallAt < throttleMs) return null;
   if (!bypassThrottle) lastAiCallAt = now;
 
+  // [P3-3] Check AI decision cache BEFORE sidecar fetches (avoid ~13s wasted on cached symbols)
+  const _cacheSym = marketData && (marketData.symbol || marketData.code);
+  if (_cacheSym) {
+    const _cached = getCachedDecision(_cacheSym);
+    if (_cached) {
+      aiCacheHits++;
+      console.log("[ai-cache] Hit for " + _cacheSym + ": " + _cached.action);
+      trackHoldDecision(_cacheSym, _cached);
+      return _cached;
+    }
+  }
+
   // [FIX] Fetch macro context from sidecar (8s timeout; fresh FRED/BOK/yahoo can exceed 2s, fallback to empty)
   try {
     const macroContext = await fetchSidecar("/api/v1/macro-context", { timeout: 8000 });
@@ -2320,18 +2332,6 @@ async function askAI(marketData, opts) {
       marketData.marketIntel = { news: _miNews, sentiment: _miSent, stats: marketIntel.stats() };
     }
   } catch (e) { /* best-effort */ }
-
-  // [P3-3] Check AI decision cache before making LLM call
-  const sym = marketData && (marketData.symbol || marketData.code);
-  if (sym) {
-    const cached = getCachedDecision(sym);
-    if (cached) {
-      aiCacheHits++;
-      console.log("[ai-cache] Hit for " + sym + ": " + cached.action);
-      trackHoldDecision(sym, cached);
-      return cached;
-    }
-  }
 
   const projection = targetEngine.project();
   const activeMarkets = getActiveMarkets();
@@ -4333,7 +4333,7 @@ async function start() {
           var _posPct = (_orderVal / decision._councilCtx.totalEquity) * 100;
           if (_posPct >= COUNCIL_SIM_THRESHOLD_PCT) {
             try {
-              var _simResult = simulator.simulate({ paths: 5000, days: 30, initialPrice: decision.price,
+               var _simResult = simulator.simulate({ paths: 1000, days: 30, initialPrice: decision.price,
                 drift: 0.0003, volatility: 0.025 });
               var _risk = simulator.computeRisk(_simResult);
               var _stress = simulator.stressTest([{ symbol: decision.symbol, price: decision.price, quantity: decision.quantity }]);
