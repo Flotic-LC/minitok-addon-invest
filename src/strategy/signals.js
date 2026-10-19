@@ -14,7 +14,7 @@
 const DEFAULT_PARAMS = Object.freeze({
   rsiOversold: Number(process.env.SIG_RSI_OVERSOLD || 30),
   rsiOverbought: Number(process.env.SIG_RSI_OVERBOUGHT || 70),
-  momentumMaxPct: Number(process.env.SIG_MOMENTUM_MAX_PCT || 25),  // [Tier 2] 강한 모멘텀도 추구 (was 8)
+  momentumMaxPct: Number(process.env.SIG_MOMENTUM_MAX_PCT || 10),  // [Tier 2] 강한 모멘텀도 추구 (was 8)
   stopLossPct: Number(process.env.SIG_STOP_LOSS_PCT || -2),
   takeProfitPct: Number(process.env.SIG_TAKE_PROFIT_PCT || 12),    // [Tier 2] 큰 수익 추구 (was 5)
   bbTouchPct: Number(process.env.SIG_BB_TOUCH_PCT || 0.3),          // within 0.3% of band = touch
