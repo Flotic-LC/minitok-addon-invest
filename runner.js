@@ -2528,9 +2528,10 @@ async function askAI(marketData, opts) {
     promptLines.push('- Schema: {"action":"BUY"|"SELL"|"HOLD","symbol":"string","quantity":number,"price":number,"reason":"string","strategy":"max_profit"|"standard"}.');
   } else {
     promptLines.push('- Schema: {"action":"BUY"|"SELL"|"HOLD","symbol":"string","quantity":number,"price":number,"reason":"string"}.');
+  s.push('- IMPORTANT: When multiple positive signals align (momentum+MACD+RSI), strongly prefer BUY over HOLD. Only HOLD if NO actionable signal exists.');
   }
   promptLines.push('- To add a new symbol to the watchlist, respond: {"action":"ADD_SYMBOL","symbol":"string","reason":"string"}.');
-  promptLines.push('- If halted or uncertain, respond {"action":"HOLD"}.');
+  promptLines.push('- If halted, respond {"action":"HOLD"}. If uncertain but a positive signal exists, prefer BUY with small size over HOLD.');
   // [DUAL-PORTFOLIO] Fetch portfolio early to inject bucket budgets into AI prompt
   const portfolio = await fetchPortfolioContext();
   const totalEquity = computeTotalEquityKrw(portfolio);
@@ -3799,8 +3800,15 @@ async function enforcePositionSizing(input, strategy) {
       if (market === "KR" && _usdFallback >= orderValue) {
         console.log("[cash-sufficiency] KRW pool insufficient but USD fallback available (" + _usdFallback.toFixed(0) + " KRW eq)");
       } else if (_totalCashKrw >= orderValue) {
-        // Total cash sufficient but wrong currency pool — allow with warning
-        console.log("[cash-sufficiency] " + market + " trade: " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + " pool insufficient (" + Math.round(_cashPool) + ") but total cash sufficient (" + Math.round(_totalCashKrw) + "). Allowing with FX warning.");
+        // Total cash sufficient but wrong currency pool — reduce order size to fit KRW pool
+        const _reducedValue = _cashPool * 0.95;
+        const _reducedQty = Math.floor(_reducedValue / input.price);
+        if (_reducedQty > 0 && _reducedQty < input.quantity) {
+          console.log("[cash-sufficiency] " + market + " trade: KRW pool insufficient (" + Math.round(_cashPool) + "), reducing qty " + input.quantity + " -> " + _reducedQty + " (total cash " + Math.round(_totalCashKrw) + " KRW eq)");
+          input.quantity = _reducedQty;
+        } else if (_reducedQty <= 0) {
+          return { ok: false, reason: "insufficient KRW: pool " + Math.round(_cashPool) + " < order " + Math.round(orderValue) + " (total cash " + Math.round(_totalCashKrw) + " but wrong currency)" };
+        }
       } else {
         return { ok: false, reason: "insufficient balance: need " + Math.round(orderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) + " (total " + Math.round(_totalCashKrw) + ")" };
       }
@@ -4962,6 +4970,20 @@ async function start() {
       const decision = await askAI(frame.data);
       if (decision) {
         console.log("[ws→decision] action=" + decision.action + " sym=" + (decision.symbol || wsSymbol) + " reason=" + (decision.reason || "").substring(0, 120));
+        // [Confidence] Evaluate all decisions (not just BUY) for tracking
+        try {
+          if (decision.symbol) {
+            confidenceCalibrator.evaluateFromResponses([{ parsed: decision }]);
+          }
+        } catch (e) { /* best-effort */ }
+        // [Meta-cog] Record ALL decisions (including HOLD) for learning
+        if (decision.action === "HOLD" && decision.symbol) {
+          try {
+            var _mcHoldId = "mc-" + Date.now() + "-" + String(decision.symbol).toUpperCase();
+            var _mcHoldCtx = { action: "HOLD", regime: currentRegime, intelligence: null, councilResult: null, walkForwardResult: null, similarExperiences: null, pastFailures: null };
+            metaCognition.recordDecision(_mcHoldId, _mcHoldCtx);
+          } catch (e) { /* best-effort */ }
+        }
         await executeDecision(decision);
       }
     },

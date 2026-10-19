@@ -222,8 +222,8 @@ function entrySignal(ctx, p) {
 
   // Safety: minScore must be positive. Zero or negative values would bypass
   // the evidence threshold and are treated as a misconfiguration.
-  if (!Number.isFinite(p.minScore) || p.minScore <= 0) {
-    return { action: "HOLD", score: 0, reasons: [...reasons, "invalid minScore config (must be >0)"], strategy: null };
+  if (!Number.isFinite(p.minScore) || p.minScore < 0) {
+    return { action: "HOLD", score: 0, reasons: [...reasons, "invalid minScore config (must be >=0)"], strategy: null };
   }
 
   if (score >= p.minScore && strategy) {

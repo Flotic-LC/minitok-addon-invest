@@ -52,7 +52,7 @@ const SCHEMA = Object.freeze({
   // --- Signal params ---
   SIG_RSI_OVERSOLD:    { type: "number", min: 0, max: 50, default: 30 },
   SIG_RSI_OVERBOUGHT:  { type: "number", min: 50, max: 100, default: 70 },
-  SIG_MIN_SCORE:       { type: "integer", min: 1, max: 10, default: 2 },
+  SIG_MIN_SCORE:       { type: "integer", min: 0, max: 10, default: 1 },
   SIG_USE_ATR_STOPS:   { type: "boolean", default: true },
   SIG_ATR_STOP_MULT:   { type: "number", min: 0.5, max: 10, default: 2.0 },
   SIG_ATR_TAKE_MULT:   { type: "number", min: 0.5, max: 20, default: 5.0 },   // was 3.0

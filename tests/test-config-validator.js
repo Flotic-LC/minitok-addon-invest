@@ -19,7 +19,7 @@ test("valid minimal env returns ok", () => {
   assert.equal(r.errors.length, 0);
   assert.equal(r.normalized.MAX_ORDER_VALUE_KRW, 5000000);
   assert.equal(r.normalized.DRY_RUN, true);
-  assert.equal(r.normalized.SIG_MIN_SCORE, 2);
+  assert.equal(r.normalized.SIG_MIN_SCORE, 1);
 });
 
 test("missing required TOSS_CLIENT_ID fails", () => {
