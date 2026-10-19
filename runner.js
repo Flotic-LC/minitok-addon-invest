@@ -881,7 +881,7 @@ function getDynamicThrottleMs() {
 let lastAiCallAt = 0;
 
 // --- [CASH-RESCUE] Cached FX rates for equity KRW conversion ---
-const cachedFxRates = { FX_USD_KRW: 1350, FX_JPY_KRW: 9 };
+let cachedFxRates = { FX_USD_KRW: 1350, FX_JPY_KRW: 9 };
 async function refreshCachedFxRates() {
   try {
     var _fxToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
@@ -1528,6 +1528,18 @@ function cleanupStaleSymbolData() {
   let cleanedCache = 0;
   for (const sym of aiDecisionCache.keys()) {
     if (!activeSymbols.has(String(sym).toUpperCase())) { aiDecisionCache.delete(sym); cleanedCache++; }
+  }
+
+  // Purge stale WS throttle entries for evicted symbols.
+  let cleanedWsThrottle = 0;
+  for (const sym of wsThrottleMap.keys()) {
+    if (!activeSymbols.has(String(sym).toUpperCase())) { wsThrottleMap.delete(sym); cleanedWsThrottle++; }
+  }
+
+  // Purge stale hold-off-hours tracking for evicted symbols.
+  let cleanedHoldOff = 0;
+  for (const sym of holdOffHoursLoggedAt.keys()) {
+    if (!activeSymbols.has(String(sym).toUpperCase())) { holdOffHoursLoggedAt.delete(sym); cleanedHoldOff++; }
   }
 
   // Note: symbolPerformance is kept longer (needed for eviction decisions)
@@ -4979,10 +4991,10 @@ async function start() {
         pollMarkets._jpWarned = true;
       }
 
-      // [FIX] US always polls via REST as backup — WS can silently fail (connected but
-      // no data delivered). Parallel REST ensures data continuity even when WS is healthy.
-      // KR only polls when WS is down/stale (KR market hours overlap with active WS).
-      if (universe.getUS().length > 0 && (active.includes("US") || allMarketsClosed)) {
+      // [FIX] US polls via REST as backup. To reduce duplicate load, when WS is healthy
+      // only poll US every 5th cycle (safety net); always poll when WS is down/stale.
+      const _usSafetyPoll = wsEffectivelyUp && !allMarketsClosed && (_pollIter % 5 !== 0);
+      if (universe.getUS().length > 0 && (active.includes("US") || allMarketsClosed) && !(_usSafetyPoll)) {
         marketsToPoll.push({ market: "US", codes: universe.getUS() });
       }
       if (!wsEffectivelyUp || allMarketsClosed) {
@@ -5007,17 +5019,21 @@ async function start() {
       }
       if (marketsToPoll.length === 0) continue;
 
+      // Hoist token fetch: one per poll cycle, not per market
+      let _pollToken = null;
+      try { _pollToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET); } catch (_te) { console.log("[rest-poll] token fetch failed: " + _te.message); }
+      if (!_pollToken) continue;
+
       for (const { market, codes } of marketsToPoll) {
         // [DIAG] Log for-loop entry per market
         if (_pollIter <= 3) {
           console.log("[rest-poll] polling market=" + market + " codes=" + codes.length);
         }
         try {
-          const token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
           if (_pollIter <= 3) {
             console.log("[rest-poll] " + market + " token OK, calling getPrices...");
           }
-          const resp = await getPrices(token, codes);
+          const resp = await getPrices(_pollToken, codes);
           if (_pollIter <= 3) {
             console.log("[rest-poll] " + market + " getPrices returned, resp.body=" + (resp && resp.body ? (Array.isArray(resp.body) ? "array(" + resp.body.length + ")" : "object") : "null/undefined"));
           }
