@@ -72,17 +72,17 @@ function loadLocalConfig() {
 }
 
 const minitokConfig = loadLocalConfig();
-const providerName = minitokConfig.default_provider || Object.keys(minitokConfig.providers || {})[0] || "profundo";
+const providerName = minitokConfig.default_provider || Object.keys(minitokConfig.providers || {})[0] || "aifromu";
 const providerConfig = (minitokConfig.providers && minitokConfig.providers[providerName]) || {};
 const aiModel = (minitokConfig.roles && minitokConfig.roles.work && minitokConfig.roles.work.model)
-  || providerConfig.model || minitokConfig.model || "gpt-6-astra";
+  || providerConfig.model || minitokConfig.model || "luna-6";
 
-const apiKeyEnvVar = providerConfig.api_key_env || "PROFUNDO_API_KEY";
-const apiKey = process.env[apiKeyEnvVar] || process.env.PROFUNDO_API_KEY || "";
-const baseUrl = process.env.PROFUNDO_BASE_URL || providerConfig.base_url || "https://api.profundoai.com/v1";
+const apiKeyEnvVar = providerConfig.api_key_env || "AIFROMU_API_KEY";
+const apiKey = process.env[apiKeyEnvVar] || process.env.AIFROMU_API_KEY || "";
+const baseUrl = process.env.AIFROMU_BASE_URL || providerConfig.base_url || "https://api.aifromu.com/v1";
 
 if (!apiKey) {
-  console.error("[runner] FATAL: No API key found. Set " + apiKeyEnvVar + " or PROFUNDO_API_KEY");
+  console.error("[runner] FATAL: No API key found. Set " + apiKeyEnvVar + " or AIFROMU_API_KEY");
   process.exit(1);
 }
 
@@ -2843,7 +2843,7 @@ async function askAI(marketData, opts) {
 const aiProviderList = [];
 if (minitokConfig.providers) {
   for (const [pname, pcfg] of Object.entries(minitokConfig.providers)) {
-    const pKey = process.env[pcfg.api_key_env || "PROFUNDO_API_KEY"] || (pname === providerName ? apiKey : "");
+    const pKey = process.env[pcfg.api_key_env || "AIFROMU_API_KEY"] || (pname === providerName ? apiKey : "");
     const pUrl = pcfg.base_url;
     const pModel = pcfg.model || minitokConfig.model || "gpt-6-astra";
     if (pKey && pUrl) aiProviderList.push({ name: pname, key: pKey, baseUrl: pUrl, model: pModel });
@@ -3664,6 +3664,7 @@ function normalizeTickPrice(symbol, price) {
 
 // --- [P7-2] Concurrency Guard: prevent duplicate in-flight orders for same symbol ---
 const inFlightSymbols = new Set();
+const scalperLastTick = new Map();
 const lastDecisionAt = new Map(); // per-symbol decision cooldown (F1.4)
 // [CASH-RESCUE] Track symbols with queued off-hours SELL orders to prevent duplicates
 const pendingOffHoursSells = new Set();
