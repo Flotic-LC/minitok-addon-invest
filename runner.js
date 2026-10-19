@@ -412,8 +412,8 @@ process.on("uncaughtException", function(err) {
   console.error("[runner] UNCAUGHT EXCEPTION: " + msg);
   try { audit.error({ source: "runner", code: "uncaught_exception", message: msg.substring(0, 500) }); } catch {}
   try { if (typeof dumpRunnerState === "function") dumpRunnerState(); } catch {}
-  // Give logs time to flush, then exit (sentinel/watchdog will restart)
-  setTimeout(function() { process.exit(1); }, 1000);
+  // [Stability] Exit after dump to avoid running in corrupted state
+  setTimeout(function() { process.exit(1); }, 500);
 });
 
 // --- 3. Initialize add-on modules ---
@@ -6879,6 +6879,12 @@ function dumpRunnerState() {
       dumpedAt: new Date().toISOString(),
     };
     // [Phase 4.3] Atomic write: tmp file + rename prevents corruption on crash mid-write
+    // [Stability] Backup current state before overwrite
+    try {
+      if (fs.existsSync(RUNNER_STATE_PATH)) {
+        fs.copyFileSync(RUNNER_STATE_PATH, RUNNER_STATE_PATH + ".bak");
+      }
+    } catch (e) { /* best-effort backup */ }
     var tmpPath = RUNNER_STATE_PATH + ".tmp";
     fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf8");
     fs.renameSync(tmpPath, RUNNER_STATE_PATH);
@@ -6890,8 +6896,30 @@ function dumpRunnerState() {
 
 function restoreRunnerState() {
   try {
-    if (!fs.existsSync(RUNNER_STATE_PATH)) return;
-    var raw = JSON.parse(fs.readFileSync(RUNNER_STATE_PATH, "utf8"));
+    var _statePath = RUNNER_STATE_PATH;
+    if (!fs.existsSync(_statePath)) {
+      // Try backup
+      if (fs.existsSync(_statePath + ".bak")) {
+        console.log("[state] Primary state missing, trying backup...");
+        _statePath = _statePath + ".bak";
+      } else {
+        return;
+      }
+    }
+    var _rawStr = fs.readFileSync(_statePath, "utf8");
+    var raw;
+    try {
+      raw = JSON.parse(_rawStr);
+    } catch (parseErr) {
+      console.error("[state] State file corrupted (" + parseErr.message + "), trying backup...");
+      if (fs.existsSync(RUNNER_STATE_PATH + ".bak") && _statePath !== RUNNER_STATE_PATH + ".bak") {
+        raw = JSON.parse(fs.readFileSync(RUNNER_STATE_PATH + ".bak", "utf8"));
+        console.log("[state] Restored from backup successfully");
+      } else {
+        console.error("[state] No valid backup available, starting fresh");
+        return;
+      }
+    }
     if (raw.pendingOrders && Array.isArray(raw.pendingOrders)) {
       for (var po of raw.pendingOrders) {
         // [FIX F9.3] Reset createdAt to avoid immediate timeout on restored orders
@@ -7037,6 +7065,12 @@ function restoreRunnerState() {
 
 // Restore state before starting
 restoreRunnerState();
+
+// [Stability] Periodic state dump every 5 minutes for crash recovery
+setInterval(function() {
+  try { if (typeof dumpRunnerState === "function") dumpRunnerState(); } catch (e) { /* best-effort */ }
+}, 300000).unref();
+console.log("[state] Periodic state dump enabled (every 5 min)");
 
 process.on("SIGTERM", function() {
   console.log("[runner] SIGTERM received. Dumping state...");
