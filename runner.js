@@ -2531,7 +2531,7 @@ async function askAI(marketData, opts) {
   s.push('- IMPORTANT: When multiple positive signals align (momentum+MACD+RSI), strongly prefer BUY over HOLD. Only HOLD if NO actionable signal exists.');
   }
   promptLines.push('- To add a new symbol to the watchlist, respond: {"action":"ADD_SYMBOL","symbol":"string","reason":"string"}.');
-  promptLines.push('- If halted, respond {"action":"HOLD"}. If uncertain but a positive signal exists, prefer BUY with small size over HOLD.');
+  promptLines.push('- If halted, respond {"action":"HOLD"}. HOLD is the LAST resort — only use when NO positive signal exists. If any positive signal (momentum, MACD, RSI, trend) is present, respond BUY with appropriate size.');
   // [DUAL-PORTFOLIO] Fetch portfolio early to inject bucket budgets into AI prompt
   const portfolio = await fetchPortfolioContext();
   const totalEquity = computeTotalEquityKrw(portfolio);

@@ -33,20 +33,20 @@ const DEFAULT_PARAMS = Object.freeze({
   // lost when mean_reversion was disabled, WITHOUT its negative edge (that strategy
   // bought oversold in DOWNTRENDS; pullback requires an established UPTREND).
   pullbackEnabled: process.env.SIG_PULLBACK_ENABLED !== "false",
-  pullbackRsiMin: Number(process.env.SIG_PULLBACK_RSI_MIN || 40),  // not oversold, just cooled off
-  pullbackRsiMax: Number(process.env.SIG_PULLBACK_RSI_MAX || 55),  // not overheated
+  pullbackRsiMin: Number(process.env.SIG_PULLBACK_RSI_MIN || 35),  // not oversold, just cooled off
+  pullbackRsiMax: Number(process.env.SIG_PULLBACK_RSI_MAX || 60),  // not overheated
   pullbackNearSma5Pct: Number(process.env.SIG_PULLBACK_NEAR_SMA5_PCT || 1.5), // within 1.5% of sma5
 
   // [Patch 2026-10-15 #6] Intraday strategies (1h momentum, 1h pullback, gap, VWAP)
   intradayEnabled: process.env.SIG_INTRADAY_ENABLED !== "false",
-  intradayRsiMin: Number(process.env.SIG_INTRADAY_RSI_MIN || 50),
-  intradayRsiMax: Number(process.env.SIG_INTRADAY_RSI_MAX || 70),
+  intradayRsiMin: Number(process.env.SIG_INTRADAY_RSI_MIN || 45),
+  intradayRsiMax: Number(process.env.SIG_INTRADAY_RSI_MAX || 75),
   gapEnabled: process.env.SIG_GAP_ENABLED !== "false",
   gapMinPct: Number(process.env.SIG_GAP_MIN_PCT || 2.0), // minimum gap % to trigger
   vwapEnabled: process.env.SIG_VWAP_ENABLED !== "false",
   vwapMinBelowPct: Number(process.env.SIG_VWAP_MIN_BELOW_PCT || 0.5), // must be >0.5% below VWAP
-  vwapRsiMin: Number(process.env.SIG_VWAP_RSI_MIN || 40),
-  vwapRsiMax: Number(process.env.SIG_VWAP_RSI_MAX || 55),
+  vwapRsiMin: Number(process.env.SIG_VWAP_RSI_MIN || 35),
+  vwapRsiMax: Number(process.env.SIG_VWAP_RSI_MAX || 60),
 });
 
 /**
