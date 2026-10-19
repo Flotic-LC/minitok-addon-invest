@@ -11,10 +11,8 @@ RUN useradd -m -u 1001 -s /bin/bash -G docker admin
 
 WORKDIR /app
 
-# Clone the repository (provides code + git history for cline changes)
-RUN rm -rf /app/* /app/.[!.]* 2>/dev/null; git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git /app
-RUN ls -la /app | head -5
-RUN cat /app/package.json | head -3
+# Clone the repository (provides code + real git history for cline changes)
+RUN git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git .
 
 RUN npm install --omit=dev
 RUN npm install -g cline
@@ -26,7 +24,6 @@ ENV NODE_ENV=production
 ENV HOME=/home/admin
 
 USER admin
-# Configure git identity for admin-bot commits
 RUN git config user.email "admin-bot@minitok" && git config user.name "minitok-admin-bot"
 
 CMD ["node", "admin.js"]
