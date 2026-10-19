@@ -193,8 +193,7 @@ const shadowMode = createShadowMode({
   },
 });
 const killswitch = createKillswitch(Object.assign({}, constitutionKillswitchConfig || {}, {
-  minCooldownHours: 0.5,
-  recoveryRequiresApproval: false,
+  config: { minCooldownHours: 0.5, recoveryRequiresApproval: false },
   onHalt: function(reason) {
     console.error("[killswitch] HALTED: " + reason);
     sendTelegramAlert("🛑 *KILLSWITCH TRIGGERED*\n" + reason + "\nRecovery requires human approval after 24h cooldown.", "critical");
