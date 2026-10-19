@@ -85,6 +85,13 @@ function shouldAlert(key) {
   lastAlertAt.set(key, now);
   return true;
 }
+// [Notify reduction] Level filter: "critical" (only critical), "warn" (critical+warn), "all" (everything)
+const NOTIFY_LEVEL = (process.env.NOTIFY_LEVEL || "warn").toLowerCase();
+function notifyAllowed(severity) {
+  if (NOTIFY_LEVEL === "all") return true;
+  if (NOTIFY_LEVEL === "warn") return severity === "critical" || severity === "warn";
+  return severity === "critical"; // "critical" level
+}
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
@@ -199,8 +206,10 @@ async function checkHealth() {
       log(`CRITICAL: bot /health unreachable (${h.error}).`);
       audit.error({ source: "admin", code: "bot_down", message: "bot /health unreachable: " + h.error });
       if (shouldAlert("bot:down")) {
-        sendTelegram(`🚨 *CRITICAL*: invest bot unreachable!\nError: ${h.error}`);
-        sendTelegram(`🔄 Auto-restarting container ${BOT_CONTAINER_NAME}...`);
+        if (notifyAllowed("critical")) {
+          sendTelegram(`🚨 *CRITICAL*: invest bot unreachable!\nError: ${h.error}`);
+          sendTelegram(`🔄 Auto-restarting container ${BOT_CONTAINER_NAME}...`);
+        }
         restartService();
       }
       return;
@@ -243,7 +252,7 @@ async function checkHealth() {
     if (logs.includes(pattern)) {
       log(`WARNING: Detected error pattern '${pattern}' in logs.`);
       // Only send Telegram alert if cooldown has passed for this pattern
-      if (shouldAlert(`err:${pattern}`)) {
+      if (shouldAlert(`err:${pattern}`) && notifyAllowed("warn")) {
         sendTelegram(`⚠️ *WARNING*: Error detected in invest bot\nPattern: \`${pattern}\``);
       }
       
@@ -322,25 +331,27 @@ function checkTradingActivity(logs) {
     const silentMin = Math.round(silentMs / 60000);
     if (shouldAlert("no-trade")) {
       log(`WARNING: No trading activity detected for ${silentMin} minutes.`);
-      let wsStatus = "N/A";
-      let aiErrors = "0";
-      if (!IS_WINDOWS) {
-        wsStatus = exec("ss -tnp | grep -c 'openapi-ws' 2>/dev/null") || "0";
-        aiErrors = exec(`grep -c 'HTTP 503\\|HTTP 400\\|ai.*Error' ${LOG_PATH} 2>/dev/null`) || "0";
-      } else {
-        wsStatus = "check Prometheus";
-        const psCount = `powershell -Command "(Select-String -Path '${LOG_PATH}' -Pattern 'HTTP 503|HTTP 400|ai.*Error' -ErrorAction SilentlyContinue).Count"`;
-        aiErrors = exec(psCount) || "0";
+      if (notifyAllowed("warn")) {
+        let wsStatus = "N/A";
+        let aiErrors = "0";
+        if (!IS_WINDOWS) {
+          wsStatus = exec("ss -tnp | grep -c 'openapi-ws' 2>/dev/null") || "0";
+          aiErrors = exec(`grep -c 'HTTP 503\\|HTTP 400\\|ai.*Error' ${LOG_PATH} 2>/dev/null`) || "0";
+        } else {
+          wsStatus = "check Prometheus";
+          const psCount = `powershell -Command "(Select-String -Path '${LOG_PATH}' -Pattern 'HTTP 503|HTTP 400|ai.*Error' -ErrorAction SilentlyContinue).Count"`;
+          aiErrors = exec(psCount) || "0";
+        }
+        sendTelegram(
+          `⚠️ *No Trading Activity*\n` +
+          `Silent for: ${silentMin} min\n` +
+          `Recent fills (store): ${recentFillCount}\n` +
+          `Last fill: ${lastFillAt || "none"}\n` +
+          `WS connections: ${wsStatus}\n` +
+          `AI errors in log: ${aiErrors}\n` +
+          `Bot running: ${findRunnerProcess() ? "✅" : "❌"}`
+        );
       }
-      sendTelegram(
-        `⚠️ *No Trading Activity*\n` +
-        `Silent for: ${silentMin} min\n` +
-        `Recent fills (store): ${recentFillCount}\n` +
-        `Last fill: ${lastFillAt || "none"}\n` +
-        `WS connections: ${wsStatus}\n` +
-        `AI errors in log: ${aiErrors}\n` +
-        `Bot running: ${findRunnerProcess() ? "✅" : "❌"}`
-      );
     }
   }
 }
@@ -405,7 +416,7 @@ async function aiAnalyzeLogs() {
     const hasIssue = analysis.includes("에러") || analysis.includes("오류") || analysis.includes("실패") ||
                      analysis.includes("error") || analysis.includes("stall") || analysis.includes("중단") ||
                      analysis.includes("주의") || analysis.includes("권장");
-    if (hasIssue && shouldAlert("ai-analysis")) {
+    if (hasIssue && shouldAlert("ai-analysis") && notifyAllowed("warn")) {
       sendTelegram(`🤖 *AI 로그 분석*\n${analysis.substring(0, 800)}`);
     }
   } catch (e) {
@@ -415,7 +426,10 @@ async function aiAnalyzeLogs() {
 
 log(`Admin started (standalone). Service: ${BOT_SERVICE}, Interval: ${CHECK_INTERVAL_MS}ms, AI analysis every ${AI_ANALYSIS_INTERVAL_MS / 60000}min`);
 audit.config({ key: "admin_start", oldValue: null, newValue: `service=${BOT_SERVICE} interval=${CHECK_INTERVAL_MS}ms prometheus=:${PROMETHEUS_PORT}`, source: "admin" });
-sendTelegram(`✅ *Admin Online (Standalone)*\nWatching: \`${BOT_SERVICE}\`\nAI Model: ${AI_MODEL}\nPrometheus: :${PROMETHEUS_PORT}`);
+// [Notify reduction] Startup message only if NOTIFY_STARTUP=true
+if (process.env.NOTIFY_STARTUP === "true") {
+  sendTelegram(`✅ *Admin Online (Standalone)*\nWatching: \`${BOT_SERVICE}\`\nAI Model: ${AI_MODEL}\nPrometheus: :${PROMETHEUS_PORT}`);
+}
 
 // Health check loop (every 60s) — async-safe
 setInterval(() => {
@@ -476,9 +490,9 @@ async function reportAutoLoop() {
     if (history.length > _lastAutoLoopHistoryLen) {
       const newActions = history.slice(_lastAutoLoopHistoryLen);
       _lastAutoLoopHistoryLen = history.length;
+      // [Notify reduction] Log only, don't send Telegram for auto-loop (non-critical)
       for (const a of newActions.slice(-5)) {
-        const msg = "auto-loop action: " + (a.action || "?") + " target=" + (a.target || "?") + " result=" + (a.result || "?");
-        await sendTelegram(msg);
+        log("[auto-loop] action=" + (a.action || "?") + " target=" + (a.target || "?") + " result=" + (a.result || "?"));
       }
       log("[autonomous] auto-loop: reported " + newActions.length + " new actions");
     }
