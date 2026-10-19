@@ -9,10 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -g 988 docker 2>/dev/null || true
 RUN useradd -m -u 1001 -s /bin/bash -G docker admin
 
-# Clone the repository (provides code + git history for cline changes)
-RUN git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git /app
-
 WORKDIR /app
+
+# Clone the repository (provides code + git history for cline changes)
+RUN git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git .
+
 RUN npm install --omit=dev
 RUN npm install -g cline
 
