@@ -1743,7 +1743,7 @@ async function heldPositionSweep() {
         console.log("[held-sweep] SELL " + sym + " qty=" + decision.quantity + " @ " + currentPrice + " reason=" + (decision.reason || ""));
         journalEntry({ type: "HELD_SWEEP_SELL", symbol: sym, quantity: decision.quantity, price: currentPrice, pnlPct: marketData._positionInfo.pnlPct, cashRescue: cashRescueMode });
         try { sendTelegramAlert("[Sweep] SELL " + sym + " qty=" + decision.quantity + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%)"); } catch {}
-        await executeDecision(decision);
+        await executeDecision(_finalDecision);
       } else if (decision) {
         console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%, rescue=" + cashRescueMode + ")");
       }
@@ -2470,7 +2470,7 @@ async function askAI(marketData, opts) {
   promptLines.push("- Trade any available instrument: Korean (KRX), US (NYSE/NASDAQ), Japanese (TSE), ETFs, indices.");
   promptLines.push("- Consider multi-currency FX rates: KRW/USD, USD/JPY, KRW/JPY for cross-border positions.");
   promptLines.push("- Factor in global macro events, overnight futures, pre/post-market sentiment, sector rotation.");
-  promptLines.push("- During off-hours, prefer HOLD unless a significant overnight catalyst warrants positioning.");
+  promptLines.push("- During off-hours, you may still BUY if strong signals exist. Do not default to HOLD.");
   promptLines.push("- Continuously evaluate whether new symbols should be added based on expansion criteria.");
   promptLines.push("- You receive a JSON payload with: marketData (price tick), portfolio (cashKrw, cashUsd, positions, openOrders), technicals (lastClose, sma5, sma20, ema9, ema21, vwap, changePct5d, changePct20d, rsi14, macd, bollinger, atr14), orderbook (bid/ask top 3 levels, imbalance ratio), warnings (exchange alerts), recentFills (your last 5 executions), and symbolPerformance (historical PnL per symbol).");
   // [P6-3] Dynamic self-awareness instruction
@@ -2491,6 +2491,7 @@ async function askAI(marketData, opts) {
   }
   promptLines.push("- Prefer SELL when: RSI>70 OR price above Bollinger upper OR MACD histogram turning negative.");
   promptLines.push("- Active exit management: take profits at +10-15%, cut chronic losers, rebalance if single position exceeds 20% of equity.");
+  promptLines.push("- AGGRESSIVE MODE: You are an autonomous trader. Default to action (BUY/SELL). Only HOLD when absolutely no signal exists. Prefer entering positions over waiting. Scale into positions gradually.");
   promptLines.push("- When cashKrw is near zero, consider partial SELL of profitable positions to free capital for higher-conviction opportunities.");
   promptLines.push("- CRITICAL cash rules: cashKrw/cashUsd/cashJpy are SEPARATE currency pools. Use the pool matching portfolio.symbolCurrency. The payload ALREADY contains authoritative per-symbol affordability: portfolio.affordable (bool), portfolio.availableCashForSymbol (number in symbol currency), portfolio.priceNative, portfolio.maxBuyQuantity. DO NOT recompute affordability yourself and NEVER claim 'insufficient cash' contradicting portfolio.affordable. If portfolio.affordable is true, a BUY is permitted. Only treat a symbol as unaffordable when portfolio.affordable is false.");
   promptLines.push("- DEPLOYMENT RULE: portfolio.deployedPct shows how much of total equity is currently invested vs targetDeployPct. Idle cash earns ZERO toward the daily-return target. When portfolio.underDeployed is true and you see a valid momentum/trend setup, you SHOULD deploy capital (BUY) rather than hold cash. Do not let deployable cash sit idle without a specific reason.");
@@ -2535,7 +2536,7 @@ async function askAI(marketData, opts) {
   s.push('- IMPORTANT: When multiple positive signals align (momentum+MACD+RSI), strongly prefer BUY over HOLD. Only HOLD if NO actionable signal exists.');
   }
   promptLines.push('- To add a new symbol to the watchlist, respond: {"action":"ADD_SYMBOL","symbol":"string","reason":"string"}.');
-  promptLines.push('- If halted, respond {"action":"HOLD"}. HOLD is the LAST resort — only use when NO positive signal exists. If any positive signal (momentum, MACD, RSI, trend) is present, respond BUY with appropriate size.');
+  promptLines.push('- If halted, respond {"action":"HOLD"}. NEVER respond HOLD when a positive signal exists. You MUST respond BUY or SELL. HOLD is forbidden unless halted or no data available.');
   // [DUAL-PORTFOLIO] Fetch portfolio early to inject bucket budgets into AI prompt
   const portfolio = await fetchPortfolioContext();
   const totalEquity = computeTotalEquityKrw(portfolio);
@@ -2817,8 +2818,8 @@ async function askAI(marketData, opts) {
     // [Strategy context] Rule-based signal engine candidates for AI guidance
   signalEngine: (function() {
     try {
-      if (!sym || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(sym).toUpperCase(); }), null);
+      if (!marketData || !marketData.symbol || !candleCtx) return null;
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), null);
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -2908,8 +2909,8 @@ async function askAI(marketData, opts) {
         // [Strategy context] Rule-based signal engine candidates for AI guidance
   signalEngine: (function() {
     try {
-      if (!sym || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(sym).toUpperCase(); }), null);
+      if (!marketData || !marketData.symbol || !candleCtx) return null;
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), null);
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -3650,7 +3651,7 @@ const symbolToSectors = new Map();
 if (tradingGoals && tradingGoals.sector_mapping) {
   for (const [sector, symbols] of Object.entries(tradingGoals.sector_mapping)) {
     for (const sym of symbols) {
-      var key = String(sym).toUpperCase();
+      var key = String(sym || "").toUpperCase();
       if (!symbolToSectors.has(key)) symbolToSectors.set(key, new Set());
       symbolToSectors.get(key).add(sector);
     }
@@ -4990,16 +4991,35 @@ async function start() {
       wsThrottleMap.set(wsSymbol, wsNow);
       console.log("[ws] Calling askAI for " + wsSymbol + " (throttle passed)");
       const decision = await askAI(frame.data);
-      if (decision) {
-        console.log("[ws→decision] action=" + decision.action + " sym=" + (decision.symbol || wsSymbol) + " reason=" + (decision.reason || "").substring(0, 120));
+      // [AUTO-TRADE] If AI returns HOLD but rule-based signal engine suggests BUY with score>=2, auto-execute
+      var _autoTradeDecision = null;
+      if (!decision || decision.action === "HOLD") {
+        try {
+          var _sig = generateSignal(frame.data, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(wsSymbol).toUpperCase(); }), null);
+          if (_sig && _sig.action === "BUY" && _sig.score >= 2 && _sig.strategy) {
+            var _autoQty = 1;
+            try {
+              var _autoPf = await fetchPortfolioContext();
+              var _autoEq = computeTotalEquityKrw(_autoPf);
+              var _autoPrice = frame.data.price || frame.data.lastPrice || 1;
+              _autoQty = Math.max(1, Math.floor((_autoEq * 0.02) / _autoPrice)); // 2% of equity
+            } catch (e) { /* default qty=1 */ }
+            _autoTradeDecision = { action: "BUY", symbol: wsSymbol, quantity: _autoQty, price: frame.data.price || frame.data.lastPrice, reason: "[auto-trade] " + _sig.strategy + " score=" + _sig.score + " " + _sig.reasons.join(", "), strategy: _sig.strategy, _metaCogIntel: null, _metaCogCouncil: null, _metaCogMemory: null };
+            console.log("[auto-trade] Rule-based BUY for " + wsSymbol + " (strategy=" + _sig.strategy + " score=" + _sig.score + ")");
+          }
+        } catch (e) { /* best-effort */ }
+      }
+      var _finalDecision = decision || _autoTradeDecision;
+      if (_finalDecision) {
+        console.log("[ws→decision] action=" + _finalDecision.action + " sym=" + (_finalDecision.symbol || wsSymbol) + " reason=" + (_finalDecision.reason || "").substring(0, 120));
         // [Confidence] Evaluate all decisions (not just BUY) for tracking
         try {
-          if (decision.symbol) {
-            confidenceCalibrator.evaluateFromResponses([{ parsed: decision }]);
+          if (_finalDecision.symbol) {
+            confidenceCalibrator.evaluateFromResponses([{ parsed: _finalDecision }]);
           }
         } catch (e) { /* best-effort */ }
         // [Meta-cog] Record ALL decisions (including HOLD) for learning
-        if (decision.action === "HOLD" && decision.symbol) {
+        if (_finalDecision.action === "HOLD" && _finalDecision.symbol) {
           try {
             var _mcHoldId = "mc-" + Date.now() + "-" + String(decision.symbol).toUpperCase();
             var _mcHoldCtx = { action: "HOLD", regime: currentRegime, intelligence: null, councilResult: null, walkForwardResult: null, similarExperiences: null, pastFailures: null };
