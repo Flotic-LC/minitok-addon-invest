@@ -18,7 +18,7 @@ const DEFAULT_PARAMS = Object.freeze({
   stopLossPct: Number(process.env.SIG_STOP_LOSS_PCT || -2),
   takeProfitPct: Number(process.env.SIG_TAKE_PROFIT_PCT || 12),    // [Tier 2] 큰 수익 추구 (was 5)
   bbTouchPct: Number(process.env.SIG_BB_TOUCH_PCT || 0.3),          // within 0.3% of band = touch
-  minScore: Number(process.env.SIG_MIN_SCORE || 2),                 // evidence count to act
+  minScore: Number(process.env.SIG_MIN_SCORE || 1),                 // evidence count to act (lowered for more entries)
 
   // [P1-5] ATR-based dynamic stop/take (overrides fixed % when ATR available)
   useAtrStops: process.env.SIG_USE_ATR_STOPS !== "false",

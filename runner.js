@@ -657,10 +657,15 @@ var marketIntel = null;
 const MARKET_INTEL_ENABLED = process.env.MARKET_INTEL_ENABLED !== "false";
 if (MARKET_INTEL_ENABLED) {
   try {
-    const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
-    marketIntel = createMarketIntelCollector({ eventBus: eventBus, eventStore: eventStore });
-    marketIntel.start();
-    console.log("[phase-s] Market intel collector started (interval=" + marketIntel.stats().tickIntervalMs + "ms, sources=" + marketIntel.sources().length + ")");
+    // [Role Separation] Market intel moved to admin bot. Runner keeps local as fallback only.
+    if (process.env.MARKET_INTEL_LOCAL === "true") {
+      const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
+      marketIntel = createMarketIntelCollector({ eventBus: eventBus || null });
+      marketIntel.start();
+      console.log("[phase-s] Market intel collector started locally (fallback mode)");
+    } else {
+      console.log("[phase-s] Market intel delegated to admin bot (ADMIN_HTTP_URL=" + (process.env.ADMIN_HTTP_URL || "http://minitok-admin:9101") + ")");
+    }
   } catch (e) {
     console.warn("[phase-s] Market intel unavailable: " + e.message);
   }
@@ -948,8 +953,8 @@ function setCachedDecision(symbol, decision) {
 // Tracks how many times the AI returns HOLD for the same symbol consecutively.
 // When threshold is exceeded, temporarily removes the symbol from the universe
 // to force exploration of more actionable instruments.
-const HOLD_EVICTION_THRESHOLD = Number(process.env.HOLD_EVICTION_THRESHOLD || 10);
-const HOLD_EVICTION_COOLDOWN_MS = Number(process.env.HOLD_EVICTION_COOLDOWN_MS || 600000); // 10 min
+const HOLD_EVICTION_THRESHOLD = Number(process.env.HOLD_EVICTION_THRESHOLD || 20);
+const HOLD_EVICTION_COOLDOWN_MS = Number(process.env.HOLD_EVICTION_COOLDOWN_MS || 300000); // 5 min
 const consecutiveHolds = new Map(); // symbol -> count
 const holdEvictedAt = new Map(); // symbol -> timestamp when evicted
 const holdOffHoursLoggedAt = new Map(); // [P8-OFF-HOURS] symbol -> last off-hours log timestamp
@@ -2390,10 +2395,28 @@ async function askAI(marketData, opts) {
   } catch (e) { /* best-effort */ }
   // [FIX] Wire market-intel RSS news + Fear&Greed into AI context (was only on eventBus)
   try {
-    if (marketIntel && typeof marketIntel.latestNews === "function") {
-      var _miNews = marketIntel.latestNews({ limit: 8 });
-      var _miSent = marketIntel.sentiment();
-      marketData.marketIntel = { news: _miNews, sentiment: _miSent, stats: marketIntel.stats() };
+    // [Role Separation] Fetch market intel from admin (non-trading data collection)
+    // Fallback to local marketIntel if admin is unavailable
+    var _adminMiUrl = process.env.ADMIN_HTTP_URL || "http://minitok-admin:9101";
+    var _miNews = null;
+    var _miSent = null;
+    var _miStats = null;
+    try {
+      var _miRes = await fetch(_adminMiUrl + "/market-intel", { signal: AbortSignal.timeout(3000) });
+      if (_miRes.ok) {
+        var _miJson = await _miRes.json();
+        _miNews = _miJson.news;
+        _miSent = _miJson.sentiment;
+        _miStats = _miJson.stats;
+      }
+    } catch (e) { /* admin unavailable, fallback to local */ }
+    if (!_miNews && marketIntel && typeof marketIntel.latestNews === "function") {
+      _miNews = marketIntel.latestNews({ limit: 8 });
+      _miSent = marketIntel.sentiment();
+      _miStats = marketIntel.stats();
+    }
+    if (_miNews || _miSent) {
+      marketData.marketIntel = { news: _miNews, sentiment: _miSent, stats: _miStats };
     }
   } catch (e) { /* best-effort */ }
 
@@ -3702,7 +3725,7 @@ async function enforcePositionSizing(input, strategy) {
     // [Confidence sizing] Scale quantity by confidence calibrator's positionScale
     try {
       if (typeof confidenceCalibrator !== "undefined" && confidenceCalibrator && typeof confidenceCalibrator.evaluate === "function") {
-        const _confResult = confidenceCalibrator.evaluate(input.symbol, { evidenceDepth: 0.5, councilAgreement: 0.5, regimeAlignment: 0.5, memorySupport: 0.5, walkForwardPass: 0.5, noveltyPenalty: 0.5 });
+        const _confResult = confidenceCalibrator.evaluateFromResponses([{ parsed: decision || {} }]);
         if (_confResult && _confResult.positionScale != null && _confResult.positionScale < 1.0) {
           const _scaledQty = Math.max(1, Math.floor(input.quantity * _confResult.positionScale));
           if (_scaledQty < input.quantity) {
@@ -3719,6 +3742,19 @@ async function enforcePositionSizing(input, strategy) {
     const _minOrderValue = market === "US" ? 50000 : 10000; // KRW equivalent
     if (orderValue < _minOrderValue) {
       return { ok: false, reason: "fee-aware: order value " + Math.round(orderValue) + " KRW below minimum " + _minOrderValue + " KRW (fees would dominate)" };
+    }
+    // [Cash sufficiency] Block early if insufficient cash in the right currency pool
+    const _cashPool = market === "US" ? (portfolio.cashUsd || 0) * fxRate
+                     : market === "JP" ? (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9)
+                     : (portfolio.cashKrw || 0);
+    if (_cashPool < orderValue) {
+      // Try USD fallback for KR trades (if USD cash can cover via FX)
+      const _usdFallback = (portfolio.cashUsd || 0) * fxRate;
+      if (market === "KR" && _usdFallback >= orderValue) {
+        console.log("[cash-sufficiency] KRW pool insufficient but USD fallback available (" + _usdFallback.toFixed(0) + " KRW eq)");
+      } else {
+        return { ok: false, reason: "insufficient balance: need " + Math.round(orderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) };
+      }
     }
     return { ok: true };
   } catch { return { ok: true }; }
@@ -4112,65 +4148,47 @@ async function _executeDecisionInner(decision, sym) {
     strategy: orderStrategy,
   });
 
-  // [Phase A / L4.5] Record successful execution to trading memory for future similarity recall
-  if (result.ok) {
-    try {
-      tradingMemory.recordDecision({
-        symbol: input.symbol,
-        action: input.side,
-        reason: decision.reason || null,
-        strategy: orderStrategy,
-        price: input.price,
-        quantity: input.quantity,
-        regime: currentRegime,
-      });
-    } catch (e) { console.error("[memory] recordDecision failed: " + e.message); }
+     // [Phase A / L4.5] Record execution to trading memory (all attempts, not just successful)
+     try {
+       tradingMemory.recordDecision({
+         symbol: input.symbol,
+         action: input.side,
+         reason: decision.reason || null,
+         strategy: orderStrategy,
+         price: input.price,
+         quantity: input.quantity,
+         regime: currentRegime,
+       });
+     } catch (e) { console.error("[memory] recordDecision failed: " + e.message); }
 
-    // [Phase I / L4.5] Meta-cognition: score this decision and track for outcome linkage
-    try {
-      var _mcId = "mc-" + Date.now() + "-" + String(input.symbol).toUpperCase();
-      var _mcCtx = {
-        action: input.side,
-        regime: currentRegime,
-        intelligence: decision._metaCogIntel || null,
-        councilResult: decision._metaCogCouncil || null,
-        walkForwardResult: walkForwardLastResult || null,
-        similarExperiences: decision._metaCogMemory || null,
-        pastFailures: null,
-      };
-      var _mcResult = metaCognition.recordDecision(_mcId, _mcCtx);
-      if (_mcResult) {
-        console.log("[meta-cog] " + input.side + " " + input.symbol + " score=" + _mcResult.aggregate +
-          " weak=" + _mcResult.isWeak + " (id=" + _mcId + ")");
-        // [Meta-cog gating] Reduce size for weak decisions
-        if (_mcResult.isWeak && input.side === "BUY" && input.quantity > 1) {
-          const _weakQty = Math.max(1, Math.floor(input.quantity * 0.5));
-          console.log("[meta-cog] Weak decision: reducing qty " + input.quantity + " -> " + _weakQty);
-          input.quantity = _weakQty;
-        }
-        // For BUY: store ID so SELL fill can attach outcome
-        if (input.side === "BUY") {
-          metaCogDecisionMap.set(String(input.symbol).toUpperCase(), { decisionId: _mcId, ts: Date.now() });
-          // Cap map size
-          while (metaCogDecisionMap.size > 200) {
-            var _oldest = metaCogDecisionMap.keys().next().value;
-            metaCogDecisionMap.delete(_oldest);
-          }
-        }
-        // Journal weak decisions for observability
-        if (_mcResult.isWeak) {
-          journalEntry({
-            type: "META_COG_WEAK_DECISION", symbol: input.symbol, action: input.side,
-            aggregate: _mcResult.aggregate, scores: _mcResult.scores, decisionId: _mcId,
-          });
-          metrics.counter("meta_cog_weak_decisions");
-        } else {
-          metrics.counter("meta_cog_strong_decisions");
-        }
-      }
-    } catch (e) { console.error("[meta-cog] recordDecision failed: " + e.message); }
-  }
-
+     // [Phase I / L4.5] Meta-cognition: score this decision and track for outcome linkage (all attempts)
+     try {
+       var _mcId = "mc-" + Date.now() + "-" + String(input.symbol).toUpperCase();
+       var _mcCtx = {
+         action: input.side,
+         regime: currentRegime,
+         intelligence: decision._metaCogIntel || null,
+         councilResult: decision._metaCogCouncil || null,
+         walkForwardResult: walkForwardLastResult || null,
+         similarExperiences: decision._metaCogMemory || null,
+         pastFailures: null,
+       };
+       var _mcResult = metaCognition.recordDecision(_mcId, _mcCtx);
+       if (_mcResult) {
+         console.log("[meta-cog] " + input.side + " " + input.symbol + " score=" + _mcResult.aggregate +
+           " weak=" + _mcResult.isWeak + " (id=" + _mcId + ")");
+         // For BUY: store ID so SELL fill can attach outcome
+         if (input.side === "BUY") {
+           metaCogDecisionMap.set(String(input.symbol).toUpperCase(), { decisionId: _mcId, ts: Date.now() });
+           // Cap map size
+           while (metaCogDecisionMap.size > 200) {
+             const _first = metaCogDecisionMap.keys().next().value;
+             metaCogDecisionMap.delete(_first);
+           }
+         }
+       }
+     } catch (e) { console.error("[meta-cog] recordDecision failed: " + e.message); }
+ 
   // [FIX #4] Track order for fill monitoring
   if (result.ok && result.data && result.data.order) {
     const _oid = result.data.order.orderId || ("fallback:" + input.symbol + ":" + input.side + ":" + Date.now());
