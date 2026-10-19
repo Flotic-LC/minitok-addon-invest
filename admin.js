@@ -427,6 +427,45 @@ setInterval(() => {
   aiAnalyzeLogs().catch(function(e) { log("AI analysis loop error: " + e.message); });
 }, AI_ANALYSIS_INTERVAL_MS);
 
+// --- [Role Separation] Admin HTTP server for non-trading data collection ---
+const http = require("http");
+const ADMIN_HTTP_PORT = Number(process.env.ADMIN_HTTP_PORT || 9101);
+
+// Market intel collector (moved from runner - non-trading data collection)
+let adminMarketIntel = null;
+try {
+  const { createMarketIntelCollector } = require("./src/intelligence/market-intel");
+  adminMarketIntel = createMarketIntelCollector({});
+  adminMarketIntel.start();
+  log("[admin] Market intel collector started (admin-owned)");
+} catch (e) {
+  log("[admin] Market intel init failed: " + e.message);
+}
+
+const adminHttpServer = http.createServer(function(req, res) {
+  const url = (req.url || "").split("?")[0];
+  if (url === "/health" || url === "/health/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), marketIntel: adminMarketIntel ? adminMarketIntel.stats() : null }));
+  } else if (url === "/market-intel" || url === "/market-intel/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    try {
+      const news = adminMarketIntel && typeof adminMarketIntel.latestNews === "function" ? adminMarketIntel.latestNews({ limit: 8 }) : [];
+      const sentiment = adminMarketIntel && typeof adminMarketIntel.sentiment === "function" ? adminMarketIntel.sentiment() : null;
+      res.end(JSON.stringify({ news: news, sentiment: sentiment, stats: adminMarketIntel ? adminMarketIntel.stats() : null }));
+    } catch (e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: e.message }));
+    }
+  } else {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "not found", endpoints: ["/health", "/market-intel"] }));
+  }
+});
+adminHttpServer.listen(ADMIN_HTTP_PORT, function() {
+  log("[admin] HTTP server listening on port " + ADMIN_HTTP_PORT + " (/health, /market-intel)");
+});
+
 // [Autonomous Admin] Periodic self-review: auto-approve low-risk gates + auto-recover
 const AUTONOMOUS_REVIEW_MS = Number(process.env.AUTONOMOUS_REVIEW_MS || 300000); // 5 min
 async function autonomousReview() {
