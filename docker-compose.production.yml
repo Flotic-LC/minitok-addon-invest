@@ -104,6 +104,7 @@ services:
     volumes:
       - invest-logs:/var/log/bot:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - cline-data:/root/.cline
     depends_on:
       - invest-bot
     networks:
@@ -118,6 +119,8 @@ volumes:
   invest-logs:
     driver: local
   invest-state:
+    driver: local
+  cline-data:
     driver: local
 
 networks:
