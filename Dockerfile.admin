@@ -10,12 +10,20 @@ RUN groupadd -g 988 docker 2>/dev/null || true
 RUN useradd -m -u 1001 -s /bin/bash -G docker admin
 
 WORKDIR /app
-
-# Clone the repository (provides code + real git history for cline changes)
-RUN git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git . ; echo "CLONE_EXIT=$?"; ls -la /app | head -8
-
+COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 RUN npm install -g cline
+
+COPY admin.js ./
+COPY src ./src
+
+# Init git with real remote history so cline commits can push as fast-forwards
+RUN cd /app && git init -q && \
+    git remote add origin https://github.com/Flotic-LC/minitok-addon-tossinvest.git && \
+    git fetch origin && \
+    git reset --hard origin/master && \
+    git config user.email "admin-bot@minitok" && \
+    git config user.name "minitok-admin-bot"
 
 RUN chown -R admin:admin /app
 
@@ -24,6 +32,4 @@ ENV NODE_ENV=production
 ENV HOME=/home/admin
 
 USER admin
-RUN git config user.email "admin-bot@minitok" && git config user.name "minitok-admin-bot"
-
 CMD ["node", "admin.js"]
