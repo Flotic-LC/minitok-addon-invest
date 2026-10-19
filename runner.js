@@ -2480,6 +2480,10 @@ async function askAI(marketData, opts) {
   promptLines.push("- Use portfolio context to avoid over-concentration. Do not exceed max_single_position_pct of total equity in one symbol.");
   promptLines.push("- Use technicals to confirm signals: RSI<30=oversold(buy), RSI>70=overbought(sell), MACD histogram crossover, price vs Bollinger bands, ATR for volatility-adjusted sizing.");
   promptLines.push("- EMA crossovers: EMA9 crossing above EMA21 is bullish; below is bearish. Price above VWAP suggests intraday strength.");
+  promptLines.push("- TIMEFRAME AWARENESS: You trade across 5-min (scalping), 1h (intraday), and 1d (swing) timeframes. Prefer intraday entries on 5-min signals, swing entries on 1d signals.");
+  promptLines.push("- STRATEGY CONTEXT: Rule-based signal engine provides candidates: momentum (trend-following), pullback (buy the dip in uptrend), intraday_momentum (1h trend), gap_follow (gap up), vwap_reversion (below VWAP). Use these as guidance but make your own judgment.");
+  promptLines.push("- INTRADAY: target 0.5-2% profit, hold < 1 day. SWING: target 3-8% profit, hold 2-5 days. SCALP: target 0.3-1%, hold < 1 hour.");
+  promptLines.push("- When signal engine suggests a strategy (e.g. intraday_momentum), strongly consider BUY unless conflicting signals exist.");
   promptLines.push("- Orderbook imbalance: bidAskImbalance > 0.2 means heavy buy-side pressure (bullish); < -0.2 means sell-side pressure (bearish). Use as short-term confirmation only.");
   promptLines.push("- Warnings: If exchange warnings exist for the symbol, factor them into risk assessment before trading.");
   if (process.env.SIG_MEAN_REVERSION_ENABLED !== "false") {
@@ -2810,7 +2814,16 @@ async function askAI(marketData, opts) {
       marketIntelNews: marketData.marketIntel.news,
       marketIntelFearGreed: marketData.marketIntel.sentiment,
     } : null),
-    similarExperiences: memoryCtx && memoryCtx.length > 0 ? memoryCtx.map(function(m) {
+    // [Strategy context] Rule-based signal engine candidates for AI guidance
+  signalEngine: (function() {
+    try {
+      if (!sym || !candleCtx) return null;
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(sym).toUpperCase(); }), null);
+      if (!_sig) return null;
+      return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
+    } catch (e) { return null; }
+  })(),
+  similarExperiences: memoryCtx && memoryCtx.length > 0 ? memoryCtx.map(function(m) {
       return { symbol: m.symbol, action: m.action, regime: m.regime, pnl: m.pnl, outcome: m.outcome, similarityScore: m.similarityScore, ts: m.ts };
     }) : null,
     // [DUAL-PORTFOLIO] Inject bucket budgets into structured payload
@@ -2892,7 +2905,16 @@ async function askAI(marketData, opts) {
           vix: intelligenceCtx.macro ? intelligenceCtx.macro.vix : null,
           sentiment: intelligenceCtx.sentiment ? intelligenceCtx.sentiment.label : null,
         } : null,
-        similarExperiences: memoryCtx && memoryCtx.length > 0 ? memoryCtx.map(function(m) {
+        // [Strategy context] Rule-based signal engine candidates for AI guidance
+  signalEngine: (function() {
+    try {
+      if (!sym || !candleCtx) return null;
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(sym).toUpperCase(); }), null);
+      if (!_sig) return null;
+      return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
+    } catch (e) { return null; }
+  })(),
+  similarExperiences: memoryCtx && memoryCtx.length > 0 ? memoryCtx.map(function(m) {
           return { symbol: m.symbol, action: m.action, regime: m.regime, pnl: m.pnl, outcome: m.outcome };
         }) : null,
         regime: currentRegime,
