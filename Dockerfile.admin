@@ -5,19 +5,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
     echo "Asia/Seoul" > /etc/timezone
 
-# Create non-root admin user (docker group gid matches host docker group 988)
+# Create non-root admin user
 RUN groupadd -g 988 docker 2>/dev/null || true
 RUN useradd -m -u 1001 -s /bin/bash -G docker admin
 
+# Clone the repository (provides code + git history for cline changes)
+RUN git clone https://github.com/Flotic-LC/minitok-addon-tossinvest.git /app
+
 WORKDIR /app
-COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 RUN npm install -g cline
 
-COPY admin.js ./
-COPY src ./src
-# Initialize git so cline changes are tracked and committable
-RUN cd /app && git init -q && git config user.email "admin-bot@minitok" && git config user.name "minitok-admin-bot" && git add -A && git commit -q -m "baseline" 2>/dev/null || true
 RUN chown -R admin:admin /app
 
 ENV TZ=Asia/Seoul
@@ -25,4 +23,7 @@ ENV NODE_ENV=production
 ENV HOME=/home/admin
 
 USER admin
+# Configure git identity for admin-bot commits
+RUN git config user.email "admin-bot@minitok" && git config user.name "minitok-admin-bot"
+
 CMD ["node", "admin.js"]
