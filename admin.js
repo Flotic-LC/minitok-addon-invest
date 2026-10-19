@@ -466,6 +466,27 @@ adminHttpServer.listen(ADMIN_HTTP_PORT, function() {
   log("[admin] HTTP server listening on port " + ADMIN_HTTP_PORT + " (/health, /market-intel)");
 });
 
+// --- [Role Separation] Auto-loop result reporting (admin reports to Telegram)
+let _lastAutoLoopHistoryLen = 0;
+async function reportAutoLoop() {
+  try {
+    const r = await botFetchFromRunner("/reflection/auto-loop");
+    if (r.error || !r.json) return;
+    const history = r.json.history || [];
+    if (history.length > _lastAutoLoopHistoryLen) {
+      const newActions = history.slice(_lastAutoLoopHistoryLen);
+      _lastAutoLoopHistoryLen = history.length;
+      for (const a of newActions.slice(-5)) {
+        const msg = "auto-loop action: " + (a.action || "?") + " target=" + (a.target || "?") + " result=" + (a.result || "?");
+        await sendTelegram(msg);
+      }
+      log("[autonomous] auto-loop: reported " + newActions.length + " new actions");
+    }
+  } catch (e) {
+    log("[autonomous] auto-loop report failed: " + e.message);
+  }
+}
+
 // [Autonomous Admin] Periodic self-review: auto-approve low-risk gates + auto-recover
 const AUTONOMOUS_REVIEW_MS = Number(process.env.AUTONOMOUS_REVIEW_MS || 300000); // 5 min
 async function autonomousReview() {
@@ -498,9 +519,11 @@ async function autonomousReview() {
 }
 setInterval(() => {
   autonomousReview().catch(function(e) { log("Autonomous review loop error: " + e.message); });
+  reportAutoLoop().catch(function(e) { log("Auto-loop report error: " + e.message); });
 }, AUTONOMOUS_REVIEW_MS);
 // Run first review 60s after startup
 setTimeout(() => { autonomousReview().catch(function(e) { log("Initial autonomous review error: " + e.message); }); }, 60000);
+setTimeout(() => { reportAutoLoop().catch(function(e) { log("Initial auto-loop report error: " + e.message); }); }, 90000);
 
 checkHealth().catch(function(e) { log("Initial checkHealth error: " + e.message); });
 // Run first AI analysis 30s after startup (let bot initialize first)
