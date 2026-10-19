@@ -5891,6 +5891,21 @@ async function start() {
   try {
     const http = require("node:http");
     const promServer = http.createServer(function(req, res) {
+      // [Admin elevation] Guard all /admin/* routes with service token.
+      if (req.url && req.url.indexOf("/admin") === 0) {
+        const _adminToken = process.env.ADMIN_SERVICE_TOKEN || "";
+        const _authHdr = (req.headers && (req.headers.authorization || req.headers["x-admin-token"])) || "";
+        const _provided = _authHdr.startsWith("Bearer ") ? _authHdr.slice(7).trim() : String(_authHdr).trim();
+        if (_adminToken && _provided !== _adminToken) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+        if (!_adminToken) {
+          // Legacy mode: no token configured -> allow (warn once).
+          console.warn("[admin] ADMIN_SERVICE_TOKEN not set; admin endpoints are UNPROTECTED");
+        }
+      }
       if (req.url === "/metrics" || req.url === "/metrics/") {
         res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
         res.end(perfMonitor.toPrometheus());
@@ -6452,8 +6467,82 @@ async function start() {
             res.end(JSON.stringify({ error: e.message }));
           }
         });
+      } else if (req.url === "/admin/approvals/pending" || req.url === "/admin/approvals/pending/") {
+        // [Admin elevation] List pending approval-gate requests.
+        res.writeHead(200, { "Content-Type": "application/json" });
+        try {
+          const pending = (approvalGate && typeof approvalGate.getPending === "function") ? approvalGate.getPending() : [];
+          res.end(JSON.stringify({ ok: true, pending: pending, stats: (approvalGate && typeof approvalGate.stats === "function") ? approvalGate.stats() : null }));
+        } catch (e) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: e.message }));
+        }
+      } else if (req.url && /^\/admin\/approvals\/([^/]+)\/approve\/?$/.test(req.url) && req.method === "POST") {
+        // [Admin elevation] Approve a pending approval-gate request.
+        var _apprId = decodeURIComponent(req.url.split("/")[4]);
+        var _apprBody = "";
+        req.on("data", function(chunk) { _apprBody += chunk; });
+        req.on("end", function() {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var _parsed = _apprBody ? JSON.parse(_apprBody) : {};
+            var _approver = _parsed.approver || "sentinel-admin";
+            var _r = approvalGate.approve(_apprId, _approver);
+            if (audit && typeof audit.custom === "function") {
+              audit.custom("admin_action", { action: "approve", target: _apprId, approver: _approver, result: _r.ok ? "ok" : "fail", reason: _r.reason || null });
+            }
+            console.log("[admin] approve " + _apprId + " by " + _approver + " -> " + (_r.ok ? "ok" : _r.reason));
+            res.end(JSON.stringify(_r));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      } else if (req.url && /^\/admin\/approvals\/([^/]+)\/reject\/?$/.test(req.url) && req.method === "POST") {
+        // [Admin elevation] Reject a pending approval-gate request.
+        var _rejId = decodeURIComponent(req.url.split("/")[4]);
+        var _rejBody = "";
+        req.on("data", function(chunk) { _rejBody += chunk; });
+        req.on("end", function() {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var _rj = _rejBody ? JSON.parse(_rejBody) : {};
+            var _rejApprover = _rj.approver || "sentinel-admin";
+            var _rejReason = _rj.reason || null;
+            var _rr = approvalGate.reject(_rejId, _rejApprover, _rejReason);
+            if (audit && typeof audit.custom === "function") {
+              audit.custom("admin_action", { action: "reject", target: _rejId, approver: _rejApprover, reason: _rejReason, result: _rr.ok ? "ok" : "fail" });
+            }
+            console.log("[admin] reject " + _rejId + " by " + _rejApprover + " -> " + (_rr.ok ? "ok" : _rr.reason));
+            res.end(JSON.stringify(_rr));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      } else if (req.url === "/admin/killswitch/recover" && req.method === "POST") {
+        // [Admin elevation] Trigger killswitch recovery with human approval.
+        var _ksBody = "";
+        req.on("data", function(chunk) { _ksBody += chunk; });
+        req.on("end", function() {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var _ksParsed = _ksBody ? JSON.parse(_ksBody) : {};
+            var _humanApproved = !!_ksParsed.humanApproved;
+            var _ksRes = (typeof killswitch !== "undefined" && killswitch && typeof killswitch.attemptRecovery === "function")
+              ? killswitch.attemptRecovery(_humanApproved)
+              : { ok: false, reason: "killswitch unavailable" };
+            if (audit && typeof audit.custom === "function") {
+              audit.custom("admin_action", { action: "killswitch_recover", humanApproved: _humanApproved, result: _ksRes && _ksRes.ok ? "ok" : "fail" });
+            }
+            console.log("[admin] killswitch recover humanApproved=" + _humanApproved + " -> " + JSON.stringify(_ksRes));
+            res.end(JSON.stringify(_ksRes || { ok: false }));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
       } else {
-        res.writeHead(404);
         res.end("Not found. Endpoints: /metrics, /health, /knowledge, /meta-cognition, /self-healing, /confidence, /lifecycle, /cross-market, /escalation, /goal-bridge, /mcp-bridge, /audit-federation, /web-tools, /reflection, /news, /sentiment, /admin/resume, /admin/state, /admin/advance-phase, /admin/reset-self-healing");
       }
     });

@@ -1,0 +1,22 @@
+FROM node:20-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      tzdata docker.io git openssh-client ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
+    echo "Asia/Seoul" > /etc/timezone
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm install --omit=dev
+
+# [CLINE-PREINSTALL] Pre-install Cline CLI globally to avoid npx download delay + ENOENT
+RUN npm install -g cline
+
+COPY sentinel.js ./
+COPY src ./src
+
+ENV TZ=Asia/Seoul
+ENV NODE_ENV=production
+
+CMD ["node", "sentinel.js"]

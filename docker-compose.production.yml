@@ -84,12 +84,12 @@ services:
         reservations:
           memory: 256M
 
-  # ── invest sentinel: watchdog + bidirectional Telegram bot ──
-  invest-sentinel:
+  # ── invest admin: watchdog + bidirectional Telegram bot ──
+  invest-admin:
     build:
       context: /opt/minitok/addons/invest
-      dockerfile: Dockerfile.sentinel
-    container_name: minitok-sentinel
+      dockerfile: Dockerfile.admin
+    container_name: minitok-admin
     restart: unless-stopped
     env_file:
       - /opt/minitok/addons/invest/.env
@@ -99,6 +99,8 @@ services:
       - BOT_INTERNAL_URL=http://minitok-invest:9100
       - BOT_LOG_PATH=/var/log/bot/bot.log
       - BOT_ERROR_LOG_PATH=/var/log/bot/bot-error.log
+      - ADMIN_SERVICE_TOKEN=${ADMIN_SERVICE_TOKEN}
+      - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS}
     volumes:
       - invest-logs:/var/log/bot:ro
       - /var/run/docker.sock:/var/run/docker.sock
