@@ -566,7 +566,7 @@ metrics.start();
 
 // --- Telegram Alert Helper (for Hard Stop notifications) ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_RUNNER_CHAT_ID || process.env.TELEGRAM_CHAT_ID || "";
 async function _sendTelegramRaw(message) {
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
@@ -582,13 +582,13 @@ const { createNotifier } = require("./src/agent/notifier");
 const _notifier = createNotifier(_sendTelegramRaw);
 // Legacy signature: plain string = info (backward compat). Object: { msg, severity }
 async function sendTelegramAlert(message, severity) {
-  // [notify-minimal] only critical alerts reach Telegram; warn/info muted (log only)
+  // [notify-relaxed] critical + warn reach Telegram; info muted (log only)
   // Scheduled info summaries (daily report) are whitelisted so they still arrive.
   const _plain = typeof message === "string" ? message : (message && message.msg);
   const _sev = (typeof message === "string") ? (severity || "info") : ((message && message.severity) || "info");
   const _allowedInfo = ["*Daily Report*"];
   const _infoAllowed = _allowedInfo.some(function(p) { return _plain && String(_plain).includes(p); });
-  if (_sev !== "critical" && !_infoAllowed) {
+  if (_sev !== "critical" && _sev !== "warn" && !_infoAllowed) {
     try { console.log("[notify-muted] sev=" + _sev + " " + String(_plain || "").split("\n")[0].slice(0, 100)); } catch {}
     return { sent: false, muted: true, severity: _sev };
   }
