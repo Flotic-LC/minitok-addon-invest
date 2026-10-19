@@ -6693,8 +6693,105 @@ async function start() {
             res.end(JSON.stringify({ error: e.message }));
           }
         });
-      } else {
-        res.end("Not found. Endpoints: /metrics, /health, /knowledge, /meta-cognition, /self-healing, /confidence, /lifecycle, /cross-market, /escalation, /goal-bridge, /mcp-bridge, /audit-federation, /web-tools, /reflection, /news, /sentiment, /admin/resume, /admin/state, /admin/advance-phase, /admin/reset-self-healing");
+        } else if (req.url === "/var" || req.url === "/var/") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var _varStats = typeof varEngine !== "undefined" && varEngine ? varEngine.stats() : null;
+            var _prStats = typeof portfolioRisk !== "undefined" && portfolioRisk ? portfolioRisk.stats() : null;
+            res.end(JSON.stringify({
+              var: _varStats,
+              portfolioRisk: _prStats,
+              timestamp: new Date().toISOString(),
+            }));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+         } else if (req.url === "/dashboard" || req.url === "/dashboard/") {
+           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+           res.end(`<!DOCTYPE html>
+<html><head><title>minitok Dashboard</title>
+<style>
+body{font-family:monospace;background:#0d1117;color:#c9d1d9;margin:0;padding:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
+h1{color:#58a6ff;margin:0 0 20px}h2{color:#8b949e;font-size:14px;margin:0 0 8px}
+.val{font-size:24px;font-weight:bold;color:#3fb950}.err{color:#f85149}
+pre{background:#0d1117;padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;max-height:200px}
+</style></head><body>
+<h1>minitok Trading Dashboard</h1>
+<div class="grid">
+<div class="card"><h2>Health</h2><div id="health" class="val">loading...</div></div>
+<div class="card"><h2>Equity</h2><div id="equity" class="val">loading...</div></div>
+<div class="card"><h2>AI Success Rate</h2><div id="ai" class="val">loading...</div></div>
+<div class="card"><h2>Self-Healing</h2><div id="sh" class="val">loading...</div></div>
+<div class="card"><h2>Meta-Cognition</h2><pre id="mc">loading...</pre></div>
+<div class="card"><h2>Confidence</h2><pre id="conf">loading...</pre></div>
+<div class="card"><h2>Lifecycle</h2><pre id="lc">loading...</pre></div>
+<div class="card"><h2>Cross-Market</h2><pre id="cm">loading...</pre></div>
+<div class="card"><h2>Self-Audit</h2><pre id="sa">loading...</pre></div>
+<div class="card"><h2>VarEngine / Risk</h2><pre id="risk">loading...</pre></div>
+</div>
+<script>
+async function fetchJson(u){try{const r=await fetch(u);return await r.json()}catch(e){return null}}
+async function refresh(){
+  const h=await fetchJson('/health');
+  if(h){document.getElementById('health').textContent=h.status+' (uptime '+Math.round(h.uptime)+'s)';
+    document.getElementById('equity').textContent=(h.selfAudit?h.selfAudit.equityKrw.toLocaleString()+' KRW':'N/A');
+    document.getElementById('ai').textContent=(h.ai?h.ai.successRatePct+'% ('+h.ai.total+')':'N/A');
+    document.getElementById('sh').textContent=(h.selfHealing?h.selfHealing.activeMitigations+' active':'N/A');
+    document.getElementById('mc').textContent=JSON.stringify(h.metaCognition,null,2);
+    document.getElementById('conf').textContent=JSON.stringify(h.confidence,null,2);
+    document.getElementById('lc').textContent=JSON.stringify(h.lifecycle,null,2);
+    document.getElementById('cm').textContent=JSON.stringify(h.crossMarket,null,2);
+    document.getElementById('sa').textContent=JSON.stringify(h.selfAudit,null,2);
+  }
+  const r=await fetchJson('/risk');
+  if(r)document.getElementById('risk').textContent=JSON.stringify(r,null,2);
+}
+refresh();setInterval(refresh,10000);
+</script></body></html>`);
+         } else if (req.url === "/backtest" || req.url === "/backtest/") {
+           res.writeHead(200, { "Content-Type": "application/json" });
+           try {
+             const { spawnSync } = require("child_process");
+             const _btResult = spawnSync("node", ["backtest.js", "--data", "backtest-result.json"], { cwd: process.cwd(), encoding: "utf8", timeout: 30000 });
+             var _btOutput = _btResult.stdout || "";
+             var _btError = _btResult.stderr || "";
+             // Try to parse JSON from output
+             var _btJson = null;
+             try {
+               var _jsonMatch = _btOutput.match(/\{[\s\S]*\}/);
+               if (_jsonMatch) _btJson = JSON.parse(_jsonMatch[0]);
+             } catch (e) { /* not JSON */ }
+             res.end(JSON.stringify({
+               ok: _btResult.status === 0,
+               exitCode: _btResult.status,
+               output: _btOutput.slice(-2000),
+               error: _btError.slice(-500),
+               result: _btJson,
+               timestamp: new Date().toISOString(),
+             }));
+           } catch (e) {
+             res.writeHead(500);
+             res.end(JSON.stringify({ error: e.message }));
+           }
+         } else if (req.url === "/risk" || req.url === "/risk/") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var _riskReport = typeof portfolioRisk !== "undefined" && portfolioRisk ? portfolioRisk.report() : null;
+            var _dynamicRisk = typeof dynamicRisk !== "undefined" && dynamicRisk ? dynamicRisk.stats() : null;
+            res.end(JSON.stringify({
+              portfolioRisk: _riskReport,
+              dynamicRisk: _dynamicRisk,
+              timestamp: new Date().toISOString(),
+            }));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        } else {
+        res.end("Not found. Endpoints: /metrics, /health, /knowledge, /meta-cognition, /self-healing, /confidence, /lifecycle, /cross-market, /escalation, /goal-bridge, /mcp-bridge, /audit-federation, /web-tools, /reflection, /news, /sentiment, /admin/resume, /admin/state, /admin/advance-phase, /admin/reset-self-healing, /var, /risk");
       }
     });
     promServer.listen(PROMETHEUS_PORT, function() {
