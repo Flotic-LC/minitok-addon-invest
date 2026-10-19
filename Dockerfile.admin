@@ -16,6 +16,8 @@ RUN npm install -g cline
 
 COPY admin.js ./
 COPY src ./src
+# Initialize git so cline changes are tracked and committable
+RUN cd /app && git init -q && git config user.email "admin-bot@minitok" && git config user.name "minitok-admin-bot" && git add -A && git commit -q -m "baseline" 2>/dev/null || true
 RUN chown -R admin:admin /app
 
 ENV TZ=Asia/Seoul
