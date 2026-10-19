@@ -39,7 +39,7 @@ if (adminCfg.warnings.length > 0) {
 const BOT_SERVICE = process.env.BOT_SERVICE || "invest-bot.service";
 const LOG_PATH = process.env.BOT_LOG_PATH || "/opt/minitok/addons/invest/bot.log";
 const CHECK_INTERVAL_MS = Number(process.env.CHECK_INTERVAL_MS || 60000);
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_TOKEN = process.env.TELEGRAM_ADMIN_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 const ADMIN_LOG = "/opt/minitok/addons/invest/sentinel.log";
 const PROMETHEUS_PORT = Number(process.env.PROMETHEUS_PORT || 9100);
