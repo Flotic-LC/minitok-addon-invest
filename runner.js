@@ -356,7 +356,7 @@ console.log("[phase-k] Confidence calibration " + (CONFIDENCE_ENABLED ? "enabled
 
 // --- [Phase D / L4.5] Evolution Engine — genetic-algorithm parameter optimization ---
 // Opt-in: set EVOLUTION_ENABLED=true to enable weekly self-evolution cycle.
-const EVOLUTION_ENABLED = process.env.EVOLUTION_ENABLED === "true";
+const EVOLUTION_ENABLED = process.env.EVOLUTION_ENABLED !== "false";
 const EVOLUTION_INTERVAL_HOURS = Number(process.env.EVOLUTION_INTERVAL_HOURS || 168);
 const EVOLUTION_CANDLES_PATH = process.env.EVOLUTION_CANDLES_PATH || null;
 const EVOLUTION_GENERATIONS = Number(process.env.EVOLUTION_GENERATIONS || 10);
@@ -1090,24 +1090,24 @@ const regimeHMM = createRegimeHMM({
   maxIter: Number(process.env.HMM_MAX_ITER || 50),
 });
 const _hmmReturnsBuffer = [];
-const _hmmLastClose = { value: null, symbol: null, ts: 0 };
+const _hmmLastClose = new Map(); // per-symbol last close for HMM returns
 const HMM_RETRAIN_MIN = Number(process.env.HMM_RETRAIN_MIN || 60); // min observations before training
 const HMM_RETRAIN_INTERVAL_MS = Number(process.env.HMM_RETRAIN_INTERVAL_MS || 3600000); // 1h
 let _hmmLastTrainTs = 0;
 console.log("[phase-g] Regime HMM initialized (states=" + regimeHMM.config.nStates + ", labels=" + regimeHMM.config.labels.join(",") + ")");
 
 function _hmmPushReturn(symbol, close) {
-  if (!close || close <= 0) return;
-  if (_hmmLastClose.symbol === symbol && _hmmLastClose.value && _hmmLastClose.value > 0) {
-    const ret = (close - _hmmLastClose.value) / _hmmLastClose.value;
+  if (!symbol || !close || close <= 0) return;
+  const sym = String(symbol).toUpperCase();
+  const prev = _hmmLastClose.get(sym);
+  if (prev && prev.value > 0) {
+    const ret = (close - prev.value) / prev.value;
     if (Number.isFinite(ret) && Math.abs(ret) < 0.5) { // cap at 50% to reject bad data
       _hmmReturnsBuffer.push(ret);
       if (_hmmReturnsBuffer.length > 500) _hmmReturnsBuffer.shift();
     }
   }
-  _hmmLastClose.value = close;
-  _hmmLastClose.symbol = symbol;
-  _hmmLastClose.ts = Date.now();
+  _hmmLastClose.set(sym, { value: close, ts: Date.now() });
 }
 
 function _hmmMaybeRetrain() {
@@ -1133,7 +1133,7 @@ function _hmmMaybeRetrain() {
 }
 
 // --- [Phase H] Walk-Forward Validation — OOS backtesting of evolved parameters ---
-const WALK_FORWARD_ENABLED = process.env.WALK_FORWARD_ENABLED === "true";
+const WALK_FORWARD_ENABLED = process.env.WALK_FORWARD_ENABLED !== "false";
 let walkForwardValidator = null;
 let walkForwardLastResult = null;
 if (WALK_FORWARD_ENABLED) {
@@ -1250,7 +1250,7 @@ if (GOAL_BRIDGE_ENABLED) {
 
 // --- [Phase M / L4.5] Cross-Market Arbitrage Scanner ---
 // Detects FX-adjusted price discrepancies across exchanges (KRX/LSE/NASDAQ/Binance/Upbit).
-const CROSS_MARKET_ENABLED = process.env.CROSS_MARKET_ENABLED === "true";
+const CROSS_MARKET_ENABLED = process.env.CROSS_MARKET_ENABLED !== "false";
 let crossMarketScanner = null;
 if (CROSS_MARKET_ENABLED) {
   try {
@@ -1662,9 +1662,10 @@ async function checkSymbolMaxLoss() {
 
 // --- [P8-1] Trailing Stop-Loss ---
 // Tracks peak price per symbol; forces SELL if price drops TRAILING_STOP_PCT from peak.
-// [Tier 2] -3% → -8%: 더 큰 변동 허용하여 추세 보유.
-// [Tier 2] activation +1% → +3%: 진짜 추세만 추적 (단타 방지).
 const TRAILING_STOP_PCT = Number(process.env.TRAILING_STOP_PCT || -8); // -8% from peak default
+// [Partial Profit-Taking] Sell in tiers at +5%, +10%, +15% profit
+const PARTIAL_PROFIT_TIERS = [5, 10, 15];
+const partialProfitTaken = new Map(); // symbol -> Set of triggered tiers
 const TRAILING_STOP_MIN_PROFIT_PCT = Number(process.env.TRAILING_STOP_MIN_PROFIT_PCT || 3); // Only trail after +3% profit
 // [Phase 3.3] ATR hard stop — always active from entry (not just after profit)
 const AUTO_EXCHANGE_MODE = process.env.AUTO_EXCHANGE_MODE || "alert";
@@ -1831,15 +1832,33 @@ async function checkTrailingStops() {
     var effectiveTrailingPct = TRAILING_STOP_PCT * Math.max(0.5, dynRisk.trailingStopAdjust || 1);
 
     for (var pos of portfolio.positions) {
-      var sym = pos.symbol;
-      var currentPrice = pos.currentPrice;
-      var qty = pos.quantity;
-      if (!sym || !currentPrice || !qty || qty <= 0) continue;
-      var entry = entryPrices.get(sym) || pos.avgPrice;
-      if (!entry || entry <= 0) continue;
-      var profitPct = ((currentPrice - entry) / entry) * 100;
+     var sym = pos.symbol;
+     var currentPrice = pos.currentPrice;
+     var qty = pos.quantity;
+     if (!sym || !currentPrice || !qty || qty <= 0) continue;
+     var entry = entryPrices.get(sym) || pos.avgPrice;
+     if (!entry || entry <= 0) continue;
 
-      // [Phase 3.3] ATR hard stop — checked FIRST, before profit gate.
+     // [Partial Profit-Taking] Sell in tiers at +5%, +10%, +15%
+     var profitPct = ((currentPrice - entry) / entry) * 100;
+     var taken = partialProfitTaken.get(sym) || new Set();
+     for (var tier of PARTIAL_PROFIT_TIERS) {
+       if (profitPct >= tier && !taken.has(tier)) {
+         var sellQty = Math.max(1, Math.floor(qty / 3));
+         if (sellQty > 0 && sellQty < qty) {
+           console.log("[partial-profit] " + sym + " tier " + tier + "% triggered, selling " + sellQty + "/" + qty);
+           journalEntry({ type: "PARTIAL_PROFIT", symbol: sym, tier: tier, sellQty: sellQty, totalQty: qty, profitPct: Number(profitPct.toFixed(2)) });
+           try {
+             await executeDecision({ action: "SELL", symbol: sym, quantity: sellQty, price: currentPrice, reason: "partial_profit_tier_" + tier, strategy: "partial_profit" });
+             taken.add(tier);
+             partialProfitTaken.set(sym, taken);
+           } catch (e) { console.error("[partial-profit] Failed: " + e.message); }
+         }
+         break;
+       }
+      }
+
+     // [Phase 3.3] ATR hard stop — checked FIRST, before profit gate.
       // Cuts losers at entry-2*ATR even if never reached trailing activation.
       var hardStop = atrStopPrices.get(sym);
       if (hardStop != null && currentPrice <= hardStop) {
@@ -2172,13 +2191,19 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
 
 function computeRSI(closes, period) {
   if (closes.length < period + 1) return null;
+  // Wilder smoothing: initial SMA then exponential smoothing
   var gains = 0, losses = 0;
-  for (var i = closes.length - period; i < closes.length; i++) {
+  for (var i = 1; i <= period; i++) {
     var diff = closes[i] - closes[i - 1];
     if (diff > 0) gains += diff; else losses -= diff;
   }
   var avgGain = gains / period;
   var avgLoss = losses / period;
+  for (var i = period + 1; i < closes.length; i++) {
+    var diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+  }
   if (avgLoss === 0) return 100;
   var rs = avgGain / avgLoss;
   return Number((100 - 100 / (1 + rs)).toFixed(2));
@@ -2232,16 +2257,20 @@ function computeBollingerBands(closes, period, mult) {
 
 function computeATR(candles, period) {
   if (candles.length < period + 1) return null;
-  var recent = candles.slice(-(period + 1));
-  var atrSum = 0;
-  for (var i = 1; i < recent.length; i++) {
-    var high = Number(recent[i].high || recent[i].highPrice || 0);
-    var low = Number(recent[i].low || recent[i].lowPrice || 0);
-    var prevClose = Number(recent[i - 1].close || recent[i - 1].closePrice || 0);
-    var tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-    atrSum += tr;
+  // Wilder smoothing: initial SMA then exponential smoothing
+  var trs = [];
+  for (var i = 1; i < candles.length; i++) {
+    var high = Number(candles[i].high || candles[i].highPrice || 0);
+    var low = Number(candles[i].low || candles[i].lowPrice || 0);
+    var prevClose = Number(candles[i - 1].close || candles[i - 1].closePrice || 0);
+    trs.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
   }
-  return Number((atrSum / period).toFixed(2));
+  if (trs.length < period) return null;
+  var atr = trs.slice(0, period).reduce(function(a, b) { return a + b; }, 0) / period;
+  for (var i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+  }
+  return Number(atr.toFixed(2));
 }
 
 async function fetchCandleContext(token, symbol, interval) {
@@ -2293,10 +2322,13 @@ async function fetchCandleContext(token, symbol, interval) {
       }
       if (cumVol > 0) vwap = Number((cumTpVol / cumVol).toFixed(2));
     } catch {}
+    // trendUp: price above SMA20 and SMA5 > SMA20 (uptrend)
+    var trendUp = (sma20 != null && latest > sma20 && sma5 != null && sma5 > sma20) ? true : false;
     return {
       lastClose: latest,
       openPrice: todayOpen > 0 ? todayOpen : null,
       prevClose: prevClose > 0 ? prevClose : null,
+      trendUp: trendUp,
       sma5: sma5,
       sma20: sma20,
       ema9: ema9,
@@ -2427,7 +2459,9 @@ async function askAI(marketData, opts) {
   promptLines.push("- EMA crossovers: EMA9 crossing above EMA21 is bullish; below is bearish. Price above VWAP suggests intraday strength.");
   promptLines.push("- Orderbook imbalance: bidAskImbalance > 0.2 means heavy buy-side pressure (bullish); < -0.2 means sell-side pressure (bearish). Use as short-term confirmation only.");
   promptLines.push("- Warnings: If exchange warnings exist for the symbol, factor them into risk assessment before trading.");
-  promptLines.push("- Prefer BUY when: RSI<35 AND price below Bollinger lower AND MACD histogram turning positive.");
+  if (process.env.SIG_MEAN_REVERSION_ENABLED === "true") {
+    promptLines.push("- Prefer BUY when: RSI<35 AND price below Bollinger lower AND MACD histogram turning positive.");
+  }
   promptLines.push("- Prefer SELL when: RSI>70 OR price above Bollinger upper OR MACD histogram turning negative.");
   promptLines.push("- Active exit management: take profits at +10-15%, cut chronic losers, rebalance if single position exceeds 20% of equity.");
   promptLines.push("- When cashKrw is near zero, consider partial SELL of profitable positions to free capital for higher-conviction opportunities.");
@@ -2683,6 +2717,7 @@ async function askAI(marketData, opts) {
       dataAgeSec: dataAgeSec,
     },
     technicals: candleCtx,
+    multiTf: (candleCtx && candleCtx.candleCtx1h) ? { trendUp: candleCtx.candleCtx1h.trendUp, rsi14: candleCtx.candleCtx1h.rsi14, macd: candleCtx.candleCtx1h.macd, sma5: candleCtx.candleCtx1h.sma5, lastClose: candleCtx.candleCtx1h.lastClose, changePct5d: candleCtx.candleCtx1h.changePct5d } : null,
     orderbook: orderbookCtx,
     warnings: warningsCtx,
     regime: currentRegime,
@@ -3302,7 +3337,7 @@ async function monitorPendingOrders() {
                 symbol: info.symbol,
                 action: "SELL",
                 strategy: pnlBreakdown.strategy || null,
-                score: 0,
+                score: pnlBreakdown.netPnl > 0 ? 1 : 0,
                 pnl: sellPnl,
                 reason: "round_trip_close",
               });
@@ -3414,7 +3449,7 @@ scheduleMonitorLoop();
 
 // --- [FIX #5] Stop-Loss / Take-Profit via Conditional Orders ---
 // [IMPROVE #8] Changed to let so backtest feedback can adjust at runtime
-let STOP_LOSS_PCT = Number(process.env.STOP_LOSS_PCT || -2); // -2% default
+let STOP_LOSS_PCT = Number(process.env.STOP_LOSS_PCT || -8); // -8% default (aligned with trailing stop)
 let TAKE_PROFIT_PCT = Number(process.env.TAKE_PROFIT_PCT || 5); // +5% default
 
 // [IMPROVE #4] Stop-loss registration with retry + verification
@@ -3451,6 +3486,31 @@ async function registerStopLoss(orderInfo) {
         const orderId = resp.body.orderId || resp.body.id;
         console.log("[stop-loss] Registered SL for " + orderInfo.symbol + " @ " + stopPrice + " (orderId=" + orderId + ", attempt " + attempt + ")");
         journalEntry({ type: "STOP_LOSS_REGISTERED", symbol: orderInfo.symbol, stopPrice, tpPrice, orderId, attempt });
+        // Register take-profit conditional order
+        try {
+          const tpBody = {
+            symbol: orderInfo.symbol,
+            type: "SINGLE",
+            quantity: orderInfo.quantity,
+            orderType: "LIMIT",
+            expireDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+            first: {
+              type: "STOP",
+              orderSide: "SELL",
+              triggerPrice: tpPrice,
+              orderPrice: tpPrice,
+            },
+          };
+          const tpToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+          const tpResp = await createConditionalOrder(tpToken, TOSS_ACCOUNT_SEQ, tpBody);
+          if (tpResp && tpResp.body && (tpResp.body.orderId || tpResp.body.id)) {
+            console.log("[take-profit] Registered TP for " + orderInfo.symbol + " @ " + tpPrice + " (orderId=" + (tpResp.body.orderId || tpResp.body.id) + ")");
+            journalEntry({ type: "TAKE_PROFIT_REGISTERED", symbol: orderInfo.symbol, tpPrice, orderId: tpResp.body.orderId || tpResp.body.id });
+          }
+        } catch (tpErr) {
+          console.error("[take-profit] Failed to register TP for " + orderInfo.symbol + ": " + tpErr.message);
+          journalEntry({ type: "TAKE_PROFIT_FAILED", symbol: orderInfo.symbol, tpPrice, error: tpErr.message });
+        }
         return { ok: true, orderId };
       }
       // Response received but no orderId — treat as potential success but log warning
@@ -3639,10 +3699,30 @@ async function enforcePositionSizing(input, strategy) {
       input.quantity = maxQty;
       return { ok: true, adjusted: true };
     }
+    // [Confidence sizing] Scale quantity by confidence calibrator's positionScale
+    try {
+      if (typeof confidenceCalibrator !== "undefined" && confidenceCalibrator && typeof confidenceCalibrator.evaluate === "function") {
+        const _confResult = confidenceCalibrator.evaluate(input.symbol, { evidenceDepth: 0.5, councilAgreement: 0.5, regimeAlignment: 0.5, memorySupport: 0.5, walkForwardPass: 0.5, noveltyPenalty: 0.5 });
+        if (_confResult && _confResult.positionScale != null && _confResult.positionScale < 1.0) {
+          const _scaledQty = Math.max(1, Math.floor(input.quantity * _confResult.positionScale));
+          if (_scaledQty < input.quantity) {
+            console.log("[confidence-sizing] " + input.symbol + " qty " + input.quantity + " -> " + _scaledQty + " (scale=" + _confResult.positionScale + ", confidence=" + _confResult.confidence + ")");
+            input.quantity = _scaledQty;
+          }
+        }
+        if (_confResult && _confResult.skip) {
+          return { ok: false, reason: "confidence: " + (_confResult.recommendation || "skip") };
+        }
+      }
+    } catch (e) { /* best-effort: don't block on confidence calc failure */ }
+    // [Fee-aware entry] Block if order value too small for fees to be negligible
+    const _minOrderValue = market === "US" ? 50000 : 10000; // KRW equivalent
+    if (orderValue < _minOrderValue) {
+      return { ok: false, reason: "fee-aware: order value " + Math.round(orderValue) + " KRW below minimum " + _minOrderValue + " KRW (fees would dominate)" };
+    }
     return { ok: true };
   } catch { return { ok: true }; }
 }
-
 // --- [P3-2] Slippage-Based Dynamic Price Offset ---
 // Adjusts LIMIT order price slightly based on historical slippage to improve fill rate.
 function applySlippageOffset(side, requestedPrice) {
@@ -4062,6 +4142,12 @@ async function _executeDecisionInner(decision, sym) {
       if (_mcResult) {
         console.log("[meta-cog] " + input.side + " " + input.symbol + " score=" + _mcResult.aggregate +
           " weak=" + _mcResult.isWeak + " (id=" + _mcId + ")");
+        // [Meta-cog gating] Reduce size for weak decisions
+        if (_mcResult.isWeak && input.side === "BUY" && input.quantity > 1) {
+          const _weakQty = Math.max(1, Math.floor(input.quantity * 0.5));
+          console.log("[meta-cog] Weak decision: reducing qty " + input.quantity + " -> " + _weakQty);
+          input.quantity = _weakQty;
+        }
         // For BUY: store ID so SELL fill can attach outcome
         if (input.side === "BUY") {
           metaCogDecisionMap.set(String(input.symbol).toUpperCase(), { decisionId: _mcId, ts: Date.now() });
@@ -4153,7 +4239,7 @@ async function start() {
     return null;
   }
 
-  const _defaultSymbols = ["005930", "000660", "035720", "AAPL", "MSFT", "NVDA", "TSLA", "BRK.B", "SPY", "QQQ", "7203", "9984", "EWJ"];
+  const _defaultSymbols = ["005930", "000660", "035720", "005380", "000270", "068270", "035420", "051910", "AAPL", "MSFT", "NVDA", "TSLA", "BRK.B", "SPY", "QQQ", "META", "AMZN", "GOOGL"];
   var initialSymbols;
   if (process.env.WATCH_SYMBOLS) {
     initialSymbols = process.env.WATCH_SYMBOLS.split(",").map(function(s) { return s.trim().toUpperCase(); }).filter(Boolean);
@@ -4322,9 +4408,13 @@ async function start() {
           if (!knownSymbols.has(_sym)) {
             knownSymbols.add(_sym);
             var _nsId = approvalGate.request("new_symbol", { symbol: _sym, reason: (decision.reason || "").slice(0, 200) });
-            // L4.5 auto-approves; in L5 this becomes a true human gate via Telegram reply
-            approvalGate.approve(_nsId, "auto_l4.5");
-            console.log("[approval] New symbol auto-approved: " + _sym + " (id=" + _nsId + ")");
+            // In dry-run, auto-approve; in live mode, require manual approval via Telegram
+            if (DRY_RUN) {
+              approvalGate.approve(_nsId, "auto_l4.5");
+              console.log("[approval] New symbol auto-approved (dry-run): " + _sym + " (id=" + _nsId + ")");
+            } else {
+              console.log("[approval] New symbol PENDING approval: " + _sym + " (id=" + _nsId + ") — awaiting admin");
+            }
           }
           // Large-position gate (>15% equity)
           if (decision._councilCtx && decision._councilCtx.totalEquity > 0 && decision.price && decision.quantity) {
@@ -4332,8 +4422,12 @@ async function start() {
             var _lpPct = (_lpOrderVal / decision._councilCtx.totalEquity) * 100;
             if (_lpPct > 15) {
               var _lpId = approvalGate.request("large_position", { symbol: _sym, pct: Number(_lpPct.toFixed(2)), valueKrw: _lpOrderVal });
-              approvalGate.approve(_lpId, "auto_l4.5");
-              console.log("[approval] Large position auto-approved: " + _sym + " " + _lpPct.toFixed(1) + "% (id=" + _lpId + ")");
+              if (DRY_RUN) {
+                approvalGate.approve(_lpId, "auto_l4.5");
+                console.log("[approval] Large position auto-approved (dry-run): " + _sym + " " + _lpPct.toFixed(1) + "% (id=" + _lpId + ")");
+              } else {
+                console.log("[approval] Large position PENDING approval: " + _sym + " " + _lpPct.toFixed(1) + "% (id=" + _lpId + ") — awaiting admin");
+              }
             }
           }
         }
