@@ -84,6 +84,20 @@ services:
         reservations:
           memory: 256M
 
+  # ── docker socket proxy: least-privilege docker API for admin bot ──
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy
+    container_name: minitok-docker-proxy
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - POST=1
+      - INFO=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - frontend
+
   # ── invest admin: watchdog + bidirectional Telegram bot ──
   invest-admin:
     build:
@@ -101,12 +115,13 @@ services:
       - BOT_ERROR_LOG_PATH=/var/log/bot/bot-error.log
       - ADMIN_SERVICE_TOKEN=${ADMIN_SERVICE_TOKEN}
       - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS}
+      - DOCKER_HOST=tcp://minitok-docker-proxy:2375
     volumes:
       - invest-logs:/var/log/bot:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - cline-data:/root/.cline
+      - cline-data:/home/admin/.cline
     depends_on:
       - invest-bot
+      - docker-socket-proxy
     networks:
       - frontend
     deploy:

@@ -5,18 +5,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ln -sf /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
     echo "Asia/Seoul" > /etc/timezone
 
-WORKDIR /app
+# Create non-root admin user (docker group gid matches host docker group 988)
+RUN groupadd -g 988 docker 2>/dev/null || true
+RUN useradd -m -u 1001 -s /bin/bash -G docker admin
 
+WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev
-
-# [CLINE-PREINSTALL] Pre-install Cline CLI globally to avoid npx download delay + ENOENT
 RUN npm install -g cline
 
 COPY admin.js ./
 COPY src ./src
+RUN chown -R admin:admin /app
 
 ENV TZ=Asia/Seoul
 ENV NODE_ENV=production
+ENV HOME=/home/admin
 
+USER admin
 CMD ["node", "admin.js"]
