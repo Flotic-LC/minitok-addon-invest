@@ -2459,7 +2459,7 @@ async function askAI(marketData, opts) {
   promptLines.push("- EMA crossovers: EMA9 crossing above EMA21 is bullish; below is bearish. Price above VWAP suggests intraday strength.");
   promptLines.push("- Orderbook imbalance: bidAskImbalance > 0.2 means heavy buy-side pressure (bullish); < -0.2 means sell-side pressure (bearish). Use as short-term confirmation only.");
   promptLines.push("- Warnings: If exchange warnings exist for the symbol, factor them into risk assessment before trading.");
-  if (process.env.SIG_MEAN_REVERSION_ENABLED === "true") {
+  if (process.env.SIG_MEAN_REVERSION_ENABLED !== "false") {
     promptLines.push("- Prefer BUY when: RSI<35 AND price below Bollinger lower AND MACD histogram turning positive.");
   }
   promptLines.push("- Prefer SELL when: RSI>70 OR price above Bollinger upper OR MACD histogram turning negative.");
@@ -6021,6 +6021,16 @@ async function start() {
   try {
     const http = require("node:http");
     const promServer = http.createServer(function(req, res) {
+      // [Security] IP whitelist for dashboard/health endpoints
+      const _allowedIp = process.env.DASHBOARD_ALLOWED_IP || "";
+      if (_allowedIp) {
+        const _remoteIp = (req.socket && req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+        if (_remoteIp !== _allowedIp) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "forbidden" }));
+          return;
+        }
+      }
       // [Admin elevation] Guard all /admin/* routes with service token.
       if (req.url && req.url.indexOf("/admin") === 0) {
         const _adminToken = process.env.ADMIN_SERVICE_TOKEN || "";
