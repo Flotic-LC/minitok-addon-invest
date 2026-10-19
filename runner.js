@@ -3747,13 +3747,17 @@ async function enforcePositionSizing(input, strategy) {
     const _cashPool = market === "US" ? (portfolio.cashUsd || 0) * fxRate
                      : market === "JP" ? (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9)
                      : (portfolio.cashKrw || 0);
+    const _totalCashKrw = (portfolio.cashKrw || 0) + (portfolio.cashUsd || 0) * fxRate + (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9);
     if (_cashPool < orderValue) {
       // Try USD fallback for KR trades (if USD cash can cover via FX)
       const _usdFallback = (portfolio.cashUsd || 0) * fxRate;
       if (market === "KR" && _usdFallback >= orderValue) {
         console.log("[cash-sufficiency] KRW pool insufficient but USD fallback available (" + _usdFallback.toFixed(0) + " KRW eq)");
+      } else if (_totalCashKrw >= orderValue) {
+        // Total cash sufficient but wrong currency pool — allow with warning
+        console.log("[cash-sufficiency] " + market + " trade: " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + " pool insufficient (" + Math.round(_cashPool) + ") but total cash sufficient (" + Math.round(_totalCashKrw) + "). Allowing with FX warning.");
       } else {
-        return { ok: false, reason: "insufficient balance: need " + Math.round(orderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) };
+        return { ok: false, reason: "insufficient balance: need " + Math.round(orderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) + " (total " + Math.round(_totalCashKrw) + ")" };
       }
     }
     return { ok: true };
@@ -4185,6 +4189,13 @@ async function _executeDecisionInner(decision, sym) {
              const _first = metaCogDecisionMap.keys().next().value;
              metaCogDecisionMap.delete(_first);
            }
+         }
+         // [Meta-cog] Attach outcome immediately for failed trades (negative outcome)
+         if (!result.ok && input.side === "BUY") {
+           try {
+             metaCognition.attachOutcome(_mcId, { pnl: -1, holdBars: 0 });
+             console.log("[meta-cog] Attached negative outcome to " + _mcId + " (trade failed: " + (result.code || "unknown") + ")");
+           } catch (e) { /* best-effort */ }
          }
        }
      } catch (e) { console.error("[meta-cog] recordDecision failed: " + e.message); }

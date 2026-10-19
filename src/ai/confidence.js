@@ -152,6 +152,7 @@ function createConfidenceCalibrator(options) {
         positionScale: 0, sampleCount: 0, samples: [],
       };
     }
+    totalEvaluations++;
 
     const actions = samples.map((s) => extractAction(s.parsed, cfg.actionField));
     const { agreement, modal } = computeActionAgreement(actions);
