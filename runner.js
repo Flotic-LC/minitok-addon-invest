@@ -419,7 +419,7 @@ process.on("uncaughtException", function(err) {
 // --- 3. Initialize add-on modules ---
   const { createAgentTools, createTargetEngine, createEquitySnapshotter } = require("./src/agent");
 const { createTossWsClient } = require("./src/ws");
-const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
+const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, cancelConditionalOrder, getConditionalOrders, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
 // [Phase 1] New modules: P&L calculator, durable event store, order manager, market calendar, metrics
 const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket } = require("./src/agent/pnl");
 const scalper = require("./src/agent/scalper");
@@ -3447,11 +3447,50 @@ async function monitorPendingOrders() {
         if (info.side === "BUY") {
           await registerStopLoss(info);
         }
+        // [FIX] Cancel orphaned conditional orders after SELL fill
+        if (info.side === "SELL") {
+          cancelOrphanedConditionalOrders().catch(function(e) {});
+        }
       } else if (status === "CANCELED" || status === "REJECTED") {
         console.log("[order-monitor] Order " + orderId + " " + status);
         pendingOrders.delete(orderId);
       }
     } catch (e) { console.error("[order-monitor] Poll error for " + orderId + ": " + (e.message || e)); }
+  }
+}
+
+// --- [FIX] Cancel orphaned conditional orders (SELL orders for symbols no longer held) ---
+async function cancelOrphanedConditionalOrders() {
+  try {
+    const token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+    const condResp = await getConditionalOrders(token, TOSS_ACCOUNT_SEQ);
+    if (!condResp || !condResp.body) return;
+    const orders = Array.isArray(condResp.body) ? condResp.body : (condResp.body.orders || condResp.body.items || []);
+    if (!orders.length) return;
+    const pf = await fetchPortfolioContext(true);
+    const heldSymbols = new Set((pf.positions || []).map(p => String(p.symbol || p.code || "").toUpperCase()));
+    let cancelled = 0;
+    for (const o of orders) {
+      const sym = String(o.symbol || o.code || "").toUpperCase();
+      const side = (o.orderSide || o.side || "").toUpperCase();
+      const orderId = o.orderId || o.id || o.conditionalOrderId;
+      if (!sym || !orderId) continue;
+      if (side === "SELL" && !heldSymbols.has(sym)) {
+        try {
+          const resp = await cancelConditionalOrder(token, TOSS_ACCOUNT_SEQ, orderId);
+          if (resp && (resp.status === 200 || resp.status === 204)) {
+            cancelled++;
+            console.log("[orphan-cancel] Cancelled conditional SELL order for " + sym + " (orderId=" + orderId + ") - no longer held");
+            journalEntry({ type: "ORPHAN_CANCELLED", symbol: sym, orderId, reason: "no_position" });
+          }
+        } catch (e) {
+          console.error("[orphan-cancel] Failed to cancel " + sym + " (orderId=" + orderId + "): " + (e.message || e));
+        }
+      }
+    }
+    if (cancelled > 0) console.log("[orphan-cancel] Cancelled " + cancelled + " orphaned conditional orders");
+  } catch (e) {
+    console.error("[orphan-cancel] Error: " + (e.message || e));
   }
 }
 
@@ -3465,6 +3504,12 @@ function scheduleMonitorLoop() {
   monitorTimer = setTimeout(function() {
     monitorPendingOrders().catch(function() {});
     scheduleMonitorLoop();
+
+// Periodic orphan conditional order cleanup (every 30 min)
+var _orphanCleanupTimer = setInterval(function() { cancelOrphanedConditionalOrders().catch(function(e) { console.error('[orphan-cancel] timer error: ' + (e && e.message)); }); }, 1800000);
+if (_orphanCleanupTimer.unref) _orphanCleanupTimer.unref();
+// Run once on startup after 60s
+setTimeout(function() { cancelOrphanedConditionalOrders().catch(function(e) {}); }, 60000);
   }, interval);
   if (monitorTimer.unref) monitorTimer.unref();
 }
