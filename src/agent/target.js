@@ -371,6 +371,13 @@ function createTargetEngine(options = {}) {
       return true;
     },
 
+    halt(reason, triggeredBy) {
+      if (state.haltState && state.haltState.halted) return false;
+      state.haltState = { halted: true, reason: reason || "admin manual halt", since: new Date(now()).toISOString(), triggeredBy: triggeredBy || "admin" };
+      persist();
+      return true;
+    },
+
     /**
      * Explicitly reseed the daily baseline equity.
      * Called by the runner on daily reset and on auto-recovery from halt

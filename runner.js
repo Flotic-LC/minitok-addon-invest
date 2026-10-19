@@ -6416,6 +6416,25 @@ async function start() {
             res.end(JSON.stringify({ error: e.message }));
           }
         });
+      } else if (req.url === "/admin/halt" && req.method === "POST") {
+        // [Admin] Halt trading engine.
+        var haltBody = "";
+        req.on("data", function(chunk) { haltBody += chunk; });
+        req.on("end", function() {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          try {
+            var hp = haltBody ? JSON.parse(haltBody) : {};
+            var reason = hp.reason || "admin manual halt";
+            var prev = targetEngine.getEffectiveLimits();
+            var ok = targetEngine.halt(reason, "admin");
+            if (audit && typeof audit.custom === "function") audit.custom("admin_action", { action: "halt", reason: reason, result: ok ? "ok" : "fail" });
+            console.log("[admin] /admin/halt: halted " + prev.halted + " -> true");
+            res.end(JSON.stringify({ ok: ok, previous: { halted: prev.halted }, current: { halted: true, reason: reason } }));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
       } else if (req.url === "/admin/state" || req.url === "/admin/state/") {
         // [P2-11] Admin endpoint: dump full target engine state for diagnostics
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -6442,6 +6461,7 @@ async function start() {
             var reason = parsed.reason || "admin manual advance";
             var prev = targetEngine.getPhase();
             var ok = targetEngine.advancePhaseDirect(phaseId, reason);
+            if (audit && typeof audit.custom === "function") audit.custom("admin_action", { action: "advance-phase", phaseId: phaseId, reason: reason, result: ok ? "ok" : "fail" });
             res.end(JSON.stringify({ ok: ok, previousPhase: prev, newPhase: targetEngine.getPhase() }));
           } catch (e) {
             res.writeHead(500);
@@ -6460,6 +6480,7 @@ async function start() {
             if (selfHealer && typeof selfHealer.reset === "function") {
               selfHealer.reset();
             }
+            if (audit && typeof audit.custom === "function") audit.custom("admin_action", { action: "reset-selfhealing", cleared: cleared, result: "ok" });
             console.log("[admin] Self-healing reset. Cleared: " + (cleared.length ? cleared.join(",") : "(none)"));
             res.end(JSON.stringify({ ok: true, cleared: cleared, previousActive: before }));
           } catch (e) {
