@@ -13,10 +13,10 @@ RUN npm install --omit=dev
 # [CLINE-PREINSTALL] Pre-install Cline CLI globally to avoid npx download delay + ENOENT
 RUN npm install -g cline
 
-COPY sentinel.js ./
+COPY admin.js ./
 COPY src ./src
 
 ENV TZ=Asia/Seoul
 ENV NODE_ENV=production
 
-CMD ["node", "sentinel.js"]
+CMD ["node", "admin.js"]

@@ -6486,7 +6486,7 @@ async function start() {
           res.writeHead(200, { "Content-Type": "application/json" });
           try {
             var _parsed = _apprBody ? JSON.parse(_apprBody) : {};
-            var _approver = _parsed.approver || "sentinel-admin";
+            var _approver = _parsed.approver || "admin-bot";
             var _r = approvalGate.approve(_apprId, _approver);
             if (audit && typeof audit.custom === "function") {
               audit.custom("admin_action", { action: "approve", target: _apprId, approver: _approver, result: _r.ok ? "ok" : "fail", reason: _r.reason || null });
@@ -6507,7 +6507,7 @@ async function start() {
           res.writeHead(200, { "Content-Type": "application/json" });
           try {
             var _rj = _rejBody ? JSON.parse(_rejBody) : {};
-            var _rejApprover = _rj.approver || "sentinel-admin";
+            var _rejApprover = _rj.approver || "admin-bot";
             var _rejReason = _rj.reason || null;
             var _rr = approvalGate.reject(_rejId, _rejApprover, _rejReason);
             if (audit && typeof audit.custom === "function") {
