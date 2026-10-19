@@ -4191,7 +4191,7 @@ async function start() {
     if (_persistTimer.unref) _persistTimer.unref();
   }
   var _periodicPersistTimer = setInterval(function() { _persistUniverse(); }, 300000);
-  if (_periodicPersistTimer.unref) _periodicPersistTimer.unref();
+  if (_periodicPersistTimer && _periodicPersistTimer.unref) _periodicPersistTimer.unref();
 
   universe = {
     symbols: new Set(initialSymbols),
@@ -6611,6 +6611,11 @@ async function start() {
     });
   } catch (e) {
     console.error("[prometheus] Failed to start: " + e.message);
+  }
+
+  // Unref all periodic timers so they don't keep the process alive
+  for (const _t of [_periodicPersistTimer, _haltTimer, _recoveryTimer, _reportTimer, _fxTimer, _plannerTimer, _resetTimer, _wsWatchdogTimer, _evictionTimer, _symbolLossTimer, _trailingTimer, _heldSweepTimer, _pendingCleanupTimer, _adaptiveTimer, _cleanupTimer, _orchRebalanceTimer, _riskTimer, _regimeTimer, _wfTimer, _mcCalTimer, _reflTimer, crossMarketTimer, _eqTimer]) {
+    try { if (_t && typeof _t.unref === "function") _t.unref(); } catch {}
   }
 }
 

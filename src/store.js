@@ -26,8 +26,11 @@ function createStore(options = {}) {
   const dir = options.dir || process.env.STORE_DIR || DEFAULT_DIR;
   const dateFn = options.dateFn || kstDateString;
 
+  let _dirEnsured = false;
   function ensureDir() {
+    if (_dirEnsured) return;
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    _dirEnsured = true;
   }
 
   function fileFor(dateStr) {
