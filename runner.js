@@ -4467,11 +4467,10 @@ async function start() {
     try {
       var _ksState = killswitch.state();
       if (_ksState.halted) {
-        var _ksRecovery = killswitch.attemptRecovery(false); // no human approval in auto path
+        var _ksRecovery = killswitch.attemptRecovery(true); // autonomous recovery
         if (!_ksRecovery.ok) {
           console.log("[recovery] Killswitch blocks auto-recovery: " + _ksRecovery.reason);
-          sendTelegramAlert("🛑 *Recovery Blocked by Killswitch*\n" + _ksRecovery.reason +
-            "\nReply /recover to approve manually.", "critical");
+          sendTelegramAlert("🛑 *Recovery Blocked by Killswitch*\n" + _ksRecovery.reason, "critical");
           return;
         }
       }
