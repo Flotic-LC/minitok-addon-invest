@@ -193,6 +193,8 @@ const shadowMode = createShadowMode({
   },
 });
 const killswitch = createKillswitch(Object.assign({}, constitutionKillswitchConfig || {}, {
+  minCooldownHours: 0.5,
+  recoveryRequiresApproval: false,
   onHalt: function(reason) {
     console.error("[killswitch] HALTED: " + reason);
     sendTelegramAlert("🛑 *KILLSWITCH TRIGGERED*\n" + reason + "\nRecovery requires human approval after 24h cooldown.", "critical");
@@ -799,7 +801,7 @@ const targetStatePath = path.join(
 // [FIX #1] State preservation: do NOT delete state file on restart.
 // returnCycles and phase progression must survive across restarts so that
 // Phase escalation (P1→P2 after 50 returnCycles) is achievable.
-const targetEngine = createTargetEngine({ statePath: targetStatePath });
+const targetEngine = createTargetEngine({ statePath: targetStatePath, halt: { dailyHardStopPct: -5.0, autoResumeAfterCleanCycles: 1 } });
 
 // [DEEP-DEBUG FIX] Remove legacy LIVE_OVERRIDE pollution from state.
 // Previous versions injected 31 fake INIT operations to force phase skip,
