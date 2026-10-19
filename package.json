@@ -1,0 +1,37 @@
+{
+  "name": "minitok-addon-invest",
+  "version": "0.1.0",
+  "description": "Toss Securities (토스증권) Open API add-on adapter for minitok — an external, standalone add-on. Contains no minitok code and is not part of the minitok package.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/*.js",
+    "test:dryrun": "node --test tests/test-dryrun-timeout.js tests/test-prechecks-endpoints.js",
+    "smoke": "node bin/smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@flotic/minitok": ">=1.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@flotic/minitok": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "minitok",
+    "add-on",
+    "adapter",
+    "toss-invest",
+    "toss-securities",
+    "stock-trading"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "ws": "^8.22.0",
+    "playwright": "^1.48.0"
+  }
+}

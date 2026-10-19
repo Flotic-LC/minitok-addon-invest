@@ -19,7 +19,7 @@ COPY src ./src
 
 # Init git with real remote history so cline commits can push as fast-forwards
 RUN cd /app && git init -q && \
-    git remote add origin https://github.com/Flotic-LC/minitok-addon-tossinvest.git && \
+    git remote add origin https://github.com/Flotic-LC/minitok-addon-invest.git && \
     git fetch origin && \
     git reset --hard origin/master && \
     git config user.email "admin-bot@minitok" && \
