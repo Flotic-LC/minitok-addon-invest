@@ -926,6 +926,9 @@ function getCachedDecision(symbol) {
     aiDecisionCache.delete(key);
     return null;
   }
+  // LRU: move to end on hit
+  aiDecisionCache.delete(key);
+  aiDecisionCache.set(key, entry);
   return entry.decision;
 }
 
@@ -1542,6 +1545,19 @@ function cleanupStaleSymbolData() {
     if (!activeSymbols.has(String(sym).toUpperCase())) { holdOffHoursLoggedAt.delete(sym); cleanedHoldOff++; }
   }
 
+  // Purge stale scalper throttle entries for evicted symbols.
+  if (typeof scalperLastTick !== "undefined" && scalperLastTick instanceof Map) {
+    for (const sym of scalperLastTick.keys()) {
+      if (!activeSymbols.has(String(sym).toUpperCase())) scalperLastTick.delete(sym);
+    }
+  }
+  // Purge stale decision cooldown entries for evicted symbols.
+  if (typeof lastDecisionAt !== "undefined" && lastDecisionAt instanceof Map) {
+    for (const sym of lastDecisionAt.keys()) {
+      if (!activeSymbols.has(String(sym).toUpperCase())) lastDecisionAt.delete(sym);
+    }
+  }
+
   // Note: symbolPerformance is kept longer (needed for eviction decisions)
   // but is capped at SYMBOL_PERF_MAX_SIZE by recordSymbolOutcome above
   const totalCleaned = cleanedCandles + cleanedStops + cleanedHolds + cleanedCache;
@@ -1985,8 +2001,9 @@ const PORTFOLIO_CACHE_MS = 60000;
 
 // [P5-1] Force-refresh: invalidate cache so next fetch hits the API
 function invalidatePortfolioCache() {
-  portfolioCacheAt = 0;
+  _portfolioDirty = true;
   _portfolioGen++; // invalidate race guard (F10.2)
+  portfolioCacheAt = 0;
 }
 
 // [FIX] Sidecar fetch helper with timeout and error handling
@@ -2040,11 +2057,13 @@ async function fetchSidecar(path, options) {
 }
 
 let _portfolioFetchPromise = null;
+let _portfolioDirty = false;
+const PORTFOLIO_MICRO_CACHE_MS = 5000;
 
 async function fetchPortfolioContext(retryOnTokenRevoked) {
   const now = Date.now();
+  if (portfolioCache && _portfolioDirty && now - portfolioCacheAt < PORTFOLIO_MICRO_CACHE_MS) return portfolioCache;
   if (portfolioCache && now - portfolioCacheAt < PORTFOLIO_CACHE_MS) return portfolioCache;
-  // In-flight dedup: if a fetch is already in progress, share the same promise
   if (_portfolioFetchPromise) return _portfolioFetchPromise;
   _portfolioFetchPromise = _doFetchPortfolio(retryOnTokenRevoked).finally(function() { _portfolioFetchPromise = null; });
   return _portfolioFetchPromise;
@@ -2093,6 +2112,7 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
       const openOrders = Array.isArray(ordersResp.body?.orders) ? ordersResp.body.orders : (Array.isArray(ordersResp.body) ? ordersResp.body : []);
       // [FIX F10.2] Apply result only if no invalidation happened during fetch
       if (_fetchGen === _portfolioGen) {
+        _portfolioDirty = false;
         portfolioCache = {
           cashKrw: Number(bpResp.body?.cashBuyingPower || 0),
           cashUsd: Number(bpUsdResp.body?.cashBuyingPower || 0),
@@ -5410,7 +5430,7 @@ async function start() {
 
   // --- [NOTIFY] Periodic Timers ---
   // Weekly: Sunday 13:00 UTC (22:00 KST)
-  setInterval(function() {
+  (function() { var _t = setInterval(function() {
     var now = new Date();
     if (now.getUTCDay() === 0 && now.getUTCHours() === 13 && now.getUTCMinutes() < 5) {
       var jan1 = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
@@ -5420,10 +5440,10 @@ async function start() {
         try { sendWeeklySummary(); } catch (e) { console.error("[weekly] Error: " + e.message); }
       }
     }
-  }, 60000);
+  }, 60000); if (_t && _t.unref) _t.unref(); })();
 
   // Monthly: 1st 00:00 UTC (09:00 KST)
-  setInterval(function() {
+  (function() { var _t = setInterval(function() {
     var now = new Date();
     if (now.getUTCDate() === 1 && now.getUTCHours() === 0 && now.getUTCMinutes() < 5) {
       var mk = now.getUTCFullYear() * 100 + now.getUTCMonth();
@@ -5432,25 +5452,25 @@ async function start() {
         try { sendMonthlyPnL(); } catch (e) { console.error("[monthly] Error: " + e.message); }
       }
     }
-  }, 60000);
+  }, 60000); if (_t && _t.unref) _t.unref(); })();
 
   // Tax-loss: Nov-Dec 10:00 UTC (19:00 KST)
-  setInterval(function() {
+  (function() { var _t = setInterval(function() {
     var now = new Date();
     var m = now.getUTCMonth();
     if ((m === 10 || m === 11) && now.getUTCHours() === 10 && now.getUTCMinutes() < 5) {
-      checkTaxLossHarvesting().catch(function(e) { console.error("[tax-loss] Error: " + e.message); });
+      try { checkTaxLossHarvesting(); } catch (e) { console.error("[tax-loss] Error: " + e.message); }
     }
-  }, 60000);
+  }, 60000); if (_t && _t.unref) _t.unref(); })();
 
   // Dividend: 1st-3rd of Mar/Jun/Sep/Dec 11:00 UTC (20:00 KST)
-  setInterval(function() {
+  (function() { var _t = setInterval(function() {
     var now = new Date();
     var m = now.getUTCMonth();
     if ([2,5,8,11].indexOf(m) !== -1 && now.getUTCDate() <= 3 && now.getUTCHours() === 11 && now.getUTCMinutes() < 5) {
       checkDividendIncome().catch(function(e) { console.error("[dividend] Error: " + e.message); });
     }
-  }, 60000);
+  }, 60000); if (_t && _t.unref) _t.unref(); })();
 
   // --- [Phase D / L4.5] Evolution Engine Cycle (weekly GA optimization) ---
   if (evolutionEngine && EVOLUTION_ENABLED) {

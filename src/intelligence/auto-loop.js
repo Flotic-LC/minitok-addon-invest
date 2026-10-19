@@ -44,6 +44,12 @@ function createAutoLoop(options) {
     if (!hypothesisEngine) { result.error = "no hypothesisEngine"; return result; }
     var ranked = hypothesisEngine.rankProposals();
     var taken = 0;
+    // Evict cooldown entries for hypotheses no longer ranked
+    var _rankedIds = new Set(ranked.map(function(h) { return h.id; }));
+    for (var _k of lastActAt.keys()) {
+      if (!_rankedIds.has(_k)) lastActAt.delete(_k);
+    }
+
     for (var i = 0; i < ranked.length && taken < cfg.maxActionsPerCycle; i++) {
       var hyp = ranked[i];
       if (hyp.score < cfg.minScore) break;
