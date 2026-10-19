@@ -211,7 +211,7 @@ function entrySignal(ctx, p) {
 
   // Mean-reversion: configurable via env. Disabled by default (negative edge measured).
   // Enable with SIG_MEAN_REVERSION_ENABLED=true to A/B test.
-  const meanReversionEnabled = process.env.SIG_MEAN_REVERSION_ENABLED === "true";
+  const meanReversionEnabled = process.env.SIG_MEAN_REVERSION_ENABLED !== "false";
   if (meanReversionEnabled && (rsiOversold || nearLowerBB) && !strategy) {
     strategy = "mean_reversion";
     score += 2;
