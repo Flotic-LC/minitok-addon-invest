@@ -1,0 +1,20 @@
+{
+  "initialEquity": 10000000,
+  "finalEquity": 10000000,
+  "totalReturnPct": 0,
+  "maxDrawdownPct": 0,
+  "sharpe": 0,
+  "trades": 0,
+  "buys": 0,
+  "sells": 0,
+  "wins": 0,
+  "losses": 0,
+  "winRatePct": 0,
+  "tradeLog": [],
+  "equityCurve": [
+    {
+      "date": "",
+      "equity": 10000000
+    }
+  ]
+}

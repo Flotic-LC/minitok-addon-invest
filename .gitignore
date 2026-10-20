@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Deploy bundles and build artifacts
+*.tar
+*.tar.gz
+*.bak
+*.bak-*
+
+# Ad-hoc backups of live files
+runner.js.new
+runner.js.test
+*.new
+
+# Runtime state
+state/
+.target-state.json
+*.log
+
+# Python
+__pycache__/
+*.pyc

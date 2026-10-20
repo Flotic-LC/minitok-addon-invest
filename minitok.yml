@@ -1,0 +1,16 @@
+# minitok configuration for minitok-addon-tossinvest runner
+# LLM provider settings: primary AIFROMU (sol-6.1)
+
+default_provider: aifromu
+model: luna-6
+
+providers:
+  aifromu:
+    base_url: https://api.aifromu.com/v1
+    api_key_env: AIFROMU_API_KEY
+    model: luna-6
+
+roles:
+  work:
+    provider: aifromu
+    model: luna-6

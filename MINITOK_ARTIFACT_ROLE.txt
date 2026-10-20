@@ -1,0 +1,59 @@
+MINITOK ARTIFACT ROLE — minitok-addon-tossinvest
+================================================
+Location: C:\Users\J1\minitok-addon-tossinvest
+Role:     Live trading addon (Toss Invest broker integration)
+Type:     Separate repository / worktree (NOT the canonical minitok client)
+Relation: Consumes minitok concepts; implements domain-specific trading
+          intelligence stack (phases R-1 through R-5).
+
+IMPORTANT: This is NOT @flotic/minitok.
+- Do not treat files here as minitok client source.
+- Do not copy runner.js or src/ modules back into minitok-client-release.
+- For minitok client work, use C:\Users\J1\minitok-client-release.
+
+Contents
+--------
+- runner.js             Main runtime (4664 lines) with HTTP reflection API
+- src/intelligence/     Reflection engines R-1 through R-5
+  - reflection.js       Event bus, signal collection, anomaly detection (R-1)
+  - correlation.js      Pearson r, lag analysis, correlation matrix (R-2)
+  - hypothesis.js       Hypothesis generation, ranking, counterfactual (R-2)
+  - attribution.js      PnL decomposition by symbol/strategy/source (R-3)
+  - experiment.js       A/B experiment + Welch's t-test (R-3)
+  - auto-loop.js        Hypothesis→action conversion (R-3)
+  - outcome-feedback.js Verdict→hypothesis closure (R-4)
+  - param-tuner.js      Runtime parameter mutation (R-5)
+  - traffic-splitter.js Deterministic A/B routing (R-5)
+  - action-registry.js  5 typed hypothesis-action handlers (R-5)
+- src/orchestrator/
+  - self-healing.js     Incident cooldowns + escalation (extended in R-5)
+- src/strategy/
+  - orchestrator.js     Strategy allocation (extended in R-5)
+- tests/
+  - test-phase-r2.js    24/24 PASS
+  - test-phase-r3.js    23/23 PASS
+  - test-phase-r4.js    14/14 PASS
+  - test-phase-r5.js    35/35 PASS
+
+Test surface: 96/96 passing (R-2 + R-3 + R-4 + R-5; R-1 has no standalone test file).
+
+HTTP reflection API (runner.js)
+-------------------------------
+GET /reflection                    — summary of all engines
+GET /reflection/attribution        — PnL decomposition
+GET /reflection/experiments        — A/B experiment status
+GET /reflection/auto-loop          — hypothesis→action history
+GET /reflection/outcome-feedback   — verdict closure log
+GET /reflection/param-tuner        — applied overrides
+GET /reflection/traffic-splitter   — active experiments
+GET /reflection/action-registry    — handler audit trail
+
+Verification command
+--------------------
+cd C:\Users\J1\minitok-addon-tossinvest
+node tests/test-phase-r2.js
+node tests/test-phase-r3.js
+node tests/test-phase-r4.js
+node tests/test-phase-r5.js
+
+Last verified: 2026-10-12
