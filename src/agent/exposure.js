@@ -131,14 +131,24 @@ function checkExposure(input, opts = {}) {
   const newTotalInvested = investedKrw + orderKrw;
   const maxInvested = equity * (1 - p.minCashReservePct / 100);
   if (newTotalInvested > maxInvested) {
-    violations.push(`cash reserve would drop below ${p.minCashReservePct}% (invested ${((newTotalInvested / equity) * 100).toFixed(1)}% > ${(100 - p.minCashReservePct).toFixed(1)}% max)`);
+    // [2026-10-21] The percentage here is the PROJECTED exposure — the
+    // current book plus this order — not the exposure the book already
+    // carries. Reading it as the current exposure made a healthy 80% book
+    // look like a 95% one and sent the investigation after a phantom
+    // discrepancy. Both numbers are now stated.
+    const currentPct = (investedKrw / equity) * 100;
+    const projectedPct = (newTotalInvested / equity) * 100;
+    violations.push(`cash reserve would drop below ${p.minCashReservePct}% (projected exposure ${projectedPct.toFixed(1)}% = current ${currentPct.toFixed(1)}% + this order; limit ${(100 - p.minCashReservePct).toFixed(1)}%)`);
   }
 
   return {
     ok: violations.length === 0,
     violations,
     exposures: {
+      // [2026-10-21] investedPct is the exposure the book carries now;
+      // projectedInvestedPct is what it would be after this order.
       investedPct: Math.round((investedKrw / equity) * 1000) / 10,
+      projectedInvestedPct: Math.round((newTotalInvested / equity) * 1000) / 10,
       openPositions: openCount,
       symbolPct: Math.round((newSymbolTotal / equity) * 1000) / 10,
       marketPct: Math.round((newMarketTotal / equity) * 1000) / 10,

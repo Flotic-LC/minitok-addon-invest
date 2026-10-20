@@ -57,11 +57,15 @@ function createEventBus(options = {}) {
       counters.evictedByAge += pruneIdx;
     }
 
-    // Enforce max history
+    // Enforce max history. Once the buffer is full the oldest event is
+    // evicted on every emit, and splicing a single element off the front of
+    // a full buffer turns each emit into an O(n) memmove. Evict in batches
+    // instead — the buffer stays within maxHistory either way.
     if (history.length >= cfg.maxHistory) {
       const overflow = history.length - cfg.maxHistory + 1;
-      history.splice(0, overflow);
-      counters.evictedByCapacity += overflow;
+      const batch = Math.max(overflow, Math.ceil(cfg.maxHistory * 0.05));
+      history.splice(0, batch);
+      counters.evictedByCapacity += batch;
     }
 
     history.push(event);
@@ -182,9 +186,14 @@ function createEventBus(options = {}) {
     counters.byType = {};
   }
 
-  function state() {
+  function state(maxEvents) {
+    // [2026-10-21] The persisted slice can be capped. The raw history was
+    // the bulk of the runner's state file and nothing read it — long
+    // analysis windows are served by the correlation engine's own rolling
+    // counters.
+    const limit = Number(maxEvents) > 0 ? Number(maxEvents) : 0;
     return {
-      history: history.slice(),
+      history: limit > 0 ? history.slice(-limit) : history.slice(),
       counters: { ...counters, byType: { ...counters.byType } },
     };
   }

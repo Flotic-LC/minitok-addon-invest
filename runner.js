@@ -429,7 +429,7 @@ process.on("uncaughtException", function(err) {
 // --- 3. Initialize add-on modules ---
   const { createAgentTools, createTargetEngine, createEquitySnapshotter } = require("./src/agent");
 const { createTossWsClient } = require("./src/ws");
-const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, cancelConditionalOrder, getConditionalOrders, getOrderbook, getTrades, getMarketCalendar, getPrices } = require("./src/tossinvest");
+const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, cancelConditionalOrder, getConditionalOrders, getOrderbook, getTrades, getMarketCalendar, getPrices, liquidityFloorReason } = require("./src/tossinvest");
 // [Phase 1] New modules: P&L calculator, durable event store, order manager, market calendar, metrics
 const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket } = require("./src/agent/pnl");
 const scalper = require("./src/agent/scalper");
@@ -1522,6 +1522,17 @@ function recordSlippage(symbol, side, expectedPrice, actualPrice) {
 // Tracks per-symbol trade outcomes to identify underperformers.
 // [BUGFIX] entryPrices stores actual BUY fill prices so SELL P&L is accurate.
 const entryPrices = new Map(); // symbol -> last BUY fill price
+// [2026-10-21] Cost basis for positions the bot did not buy itself.
+// entryPrices only holds the bot's own fills, so a position that predates
+// this process has no entry there. Once such a position is fully sold the
+// broker stops reporting an average price, so the exit P&L came back as
+// unknown (pnl=null) even though the broker had given us the cost basis on
+// every portfolio fetch. This map records it while the holding still exists.
+// It is deliberately separate from entryPrices: `legacy` uses entryPrices to
+// tell pre-existing holdings from bot-initiated ones (so legacy unrealized
+// gains cannot mask trade losses), and seeding entryPrices would flip that
+// meaning.
+const brokerBasisPrices = new Map(); // symbol -> broker average purchase price
 const symbolPerformance = new Map(); // symbol -> { trades, wins, losses, totalPnl }
 
 const SYMBOL_PERF_MAX_SIZE = 200;
@@ -2195,6 +2206,16 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
         _pos.valueKrw = marketValueKrw(_pos);
         return _pos;
       }).filter(function(p) { return p.quantity > 0; });
+      // [2026-10-21] Record the broker's average purchase price while the
+      // holding still exists. After a full exit the broker drops the
+      // position, and with it the only remaining cost basis — which is why
+      // the exit P&L was reported as unknown.
+      for (const p of positions) {
+        const _basisSym = String(p.symbol || "").toUpperCase();
+        if (_basisSym && !brokerBasisPrices.has(_basisSym) && p.avgPrice > 0) {
+          brokerBasisPrices.set(_basisSym, p.avgPrice);
+        }
+      }
       const openOrders = Array.isArray(ordersResp.body?.orders) ? ordersResp.body.orders : (Array.isArray(ordersResp.body) ? ordersResp.body : []);
       // [FIX F10.2] Apply result only if no invalidation happened during fetch
       if (_fetchGen === _portfolioGen) {
@@ -2390,8 +2411,16 @@ async function fetchCandleContext(token, symbol, interval) {
     } catch {}
     // trendUp: price above SMA20 and SMA5 > SMA20 (uptrend)
     var trendUp = (sma20 != null && latest > sma20 && sma5 != null && sma5 > sma20) ? true : false;
+    // [2026-10-21] Daily dollar volume — the liquidity measure the watchlist
+    // filter uses. Share volume alone puts micro-caps at the top because
+    // they trade many shares for very few dollars.
+    var lastCandle = candles[candles.length - 1];
+    var lastVolume = Number((lastCandle && (lastCandle.volume || lastCandle.accVolume || lastCandle.tradeVolume)) || 0);
+    var dollarVolume = lastVolume * latest;
     return {
       lastClose: latest,
+      volume: lastVolume,
+      dollarVolume: dollarVolume,
       openPrice: todayOpen > 0 ? todayOpen : null,
       prevClose: prevClose > 0 ? prevClose : null,
       trendUp: trendUp,
@@ -3372,7 +3401,11 @@ async function monitorPendingOrders() {
           // [P2-10 FIX] Robust entry price resolution. Order of preference:
           //   1. entryPrices (in-memory, set on BUY fill this session)
           //   2. Broker avgPrice from portfolio cache (survives restarts)
-          //   3. info.price (order price — last resort, may ≈ fillPrice → grossPnl≈0)
+          //   3. brokerBasisPrices (the broker's average recorded while the
+          //      holding still existed — this is what a full exit needs,
+          //      because the broker drops the position and its average the
+          //      moment the last share is sold)
+          //   4. info.price (order price — last resort, may ≈ fillPrice → grossPnl≈0)
           var entryPrice = entryPrices.get(info.symbol);
           var entryPriceSource = "memory";
           if (!entryPrice || entryPrice <= 0) {
@@ -3388,6 +3421,13 @@ async function monitorPendingOrders() {
                 }
               }
             } catch (_e) { /* ignore cache lookup failure */ }
+          }
+          if (!entryPrice || entryPrice <= 0) {
+            var _basis = brokerBasisPrices.get(String(info.symbol).toUpperCase());
+            if (_basis && _basis > 0) {
+              entryPrice = _basis;
+              entryPriceSource = "broker_basis";
+            }
           }
           if (!entryPrice || entryPrice <= 0) {
             // [P10-2] No reliable entry price anywhere. Do NOT invent a P&L by
@@ -3701,6 +3741,21 @@ const MAX_SINGLE_POSITION_PCT = (tradingGoals && tradingGoals.risk_parameters &&
 function marketCurrency(symbol) {
   var m = (typeof detectMarket === "function") ? detectMarket(symbol) : "US";
   return m === "KR" ? "KRW" : (m === "JP" ? "JPY" : "USD");
+}
+
+/**
+ * Convert an amount expressed in a listing currency into USD.
+ *
+ * [2026-10-21] The watchlist liquidity floor is stated in USD, so a Japanese
+ * symbol has to be converted before it can be compared against it — 3,000 JPY
+ * is about 20 USD, not 3,000.
+ */
+function toUsd(amount, currency) {
+  var cur = String(currency || "USD").toUpperCase();
+  var base = fxRateToKrw("USD");
+  var rate = fxRateToKrw(cur);
+  if (!(rate > 0) || !(base > 0)) return Number(amount) || 0;
+  return (Number(amount) || 0) * (rate / base);
 }
 
 // [2026-10-20] Single source of truth for "foreign currency -> KRW".
@@ -4671,6 +4726,36 @@ async function start() {
       if (!cal.isTradableMarket(_addMarket)) {
         console.log("[ai] ADD_SYMBOL " + decision.symbol + ": REJECTED (market " + _addMarket + " is not tradable)");
         return { ok: false, action: "ADD_SYMBOL", reason: "MARKET_NOT_TRADABLE" };
+      }
+      // [2026-10-21] The AI can name any ticker. A symbol too thin to trade
+      // only produces orders the broker refuses ("prerequisite-required") and
+      // a spread wide enough to trip the liquidity-shock limit, which then
+      // blocks unrelated buys. The discovery scan applies the same floor, so
+      // both entry points agree on what may enter the watchlist.
+      try {
+        const _symKey = String(decision.symbol).toUpperCase();
+        let _liqCtx = lastCandleCtx.get(_symKey);
+        if (!_liqCtx) {
+          const _liqToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+          _liqCtx = await fetchCandleContext(_liqToken, _symKey);
+          if (_liqCtx) lastCandleCtx.set(_symKey, _liqCtx);
+        }
+        if (!_liqCtx) {
+          console.log("[ai] ADD_SYMBOL " + decision.symbol + ": REJECTED (no candle data — liquidity cannot be verified)");
+          return { ok: false, action: "ADD_SYMBOL", reason: "NO_LIQUIDITY_DATA" };
+        }
+        const _liqCur = marketCurrency(_symKey);
+        const _liqReason = liquidityFloorReason(
+          toUsd(_liqCtx.lastClose, _liqCur),
+          toUsd(_liqCtx.dollarVolume, _liqCur)
+        );
+        if (_liqReason) {
+          console.log("[ai] ADD_SYMBOL " + decision.symbol + ": REJECTED (" + _liqReason + ")");
+          return { ok: false, action: "ADD_SYMBOL", reason: "ILLIQUID", detail: _liqReason };
+        }
+      } catch (_liqErr) {
+        console.log("[ai] ADD_SYMBOL " + decision.symbol + ": REJECTED (liquidity check failed: " + _liqErr.message + ")");
+        return { ok: false, action: "ADD_SYMBOL", reason: "LIQUIDITY_CHECK_FAILED" };
       }
       const added = universe.add(decision.symbol);
       console.log("[ai] ADD_SYMBOL " + decision.symbol + ": " + (added ? "OK" : "REJECTED"));
@@ -7285,10 +7370,17 @@ function dumpRunnerState() {
       // [P1-4] Goal bridge state (goalIds, history, counters)
       goalBridge: (function(){try{return goalBridge ? goalBridge.state() : null;}catch(e){return null;} })(),
       // [Phase R / L4.5] Reflection engine event bus state
-      reflectionEventBus: eventBus ? eventBus.state() : null,
+      // [2026-10-21] Only the recent slice is persisted. The raw history was
+      // the bulk of the state file (4.9 MB) and nothing reads it: the
+      // correlation engine now keeps its own rolling per-bucket counters,
+      // which are persisted separately below.
+      reflectionEventBus: eventBus ? eventBus.state(500) : null,
       // [Phase R-2] Correlation findings + hypothesis list
       correlationHistory: correlationEngine ? correlationEngine.getHistory(100) : [],
       correlationStats: correlationEngine ? correlationEngine.stats() : null,
+      // [2026-10-21] The rolling counters are the correlation engine's real
+      // memory — without them a restart empties the 24-hour window.
+      correlationBuckets: correlationEngine ? correlationEngine.state() : null,
       hypotheses: hypothesisEngine ? hypothesisEngine.getHypotheses(200) : [],
       hypothesisOutcomes: hypothesisEngine ? hypothesisEngine.getOutcomes(50) : [],
       hypothesisStats: hypothesisEngine ? hypothesisEngine.stats() : null,

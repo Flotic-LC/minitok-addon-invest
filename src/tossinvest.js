@@ -374,6 +374,33 @@ async function listStocksAll(token, market, { status, securityType, commonShare 
   return tossRequest(`/api/v1/stocks/all?${params.toString()}`, { method: "GET", token });
 }
 
+/**
+ * Liquidity floor for a symbol that is about to enter the watchlist.
+ *
+ * [2026-10-21] Shared by the discovery scan and the runner's ADD_SYMBOL
+ * path. A symbol that cannot absorb a market order without a wide spread is
+ * not tradable: the broker refuses its orders ("prerequisite-required") and
+ * its spread trips the liquidity-shock limit, which then blocks unrelated
+ * buys. Returns null when the symbol passes, or a human-readable reason when
+ * it does not.
+ *
+ * @param {number} price         last close, in the listing currency
+ * @param {number} dollarVolume  daily dollar volume (shares x price)
+ */
+function liquidityFloorReason(price, dollarVolume) {
+  const minPrice = Number(process.env.DISCOVERY_MIN_PRICE_USD || 5);
+  const minDollarVolume = Number(process.env.DISCOVERY_MIN_DOLLAR_VOLUME || 5_000_000);
+  const p = Number(price) || 0;
+  const dv = Number(dollarVolume) || 0;
+  if (p > 0 && p < minPrice) {
+    return "price " + p + " below the " + minPrice + " floor";
+  }
+  if (dv < minDollarVolume) {
+    return "daily dollar volume " + Math.round(dv) + " below the " + minDollarVolume + " floor";
+  }
+  return null;
+}
+
 // --- Dynamic Universe Discovery ---
 // Fetches all stocks for a market, then samples recent candles to rank by volume.
 // Returns top N symbols suitable for AI watchlist expansion.
@@ -409,11 +436,8 @@ async function discoverSymbols(token, market, limit = 10) {
       }
     } catch { /* skip rate-limited or invalid symbols */ }
   }
-  const minPrice = Number(process.env.DISCOVERY_MIN_PRICE_USD || 5);
-  const minDollarVolume = Number(process.env.DISCOVERY_MIN_DOLLAR_VOLUME || 5_000_000);
   const eligible = scored.filter(function(s) {
-    if (s.close > 0 && s.close < minPrice) return false;
-    return s.dollarVolume >= minDollarVolume;
+    return liquidityFloorReason(s.close, s.dollarVolume) === null;
   });
   eligible.sort((a, b) => b.dollarVolume - a.dollarVolume);
   return eligible.slice(0, limit).map(s => s.symbol);
@@ -903,4 +927,4 @@ async function getIpoCalendar(token, market, { startDate, endDate } = {}) {
   if (endDate) params.set("endDate", endDate);
   return tossRequest(`/api/v1/ipo-calendar?${params.toString()}`, { method: "GET", token });
 }
-module.exports = { BASE_URL, TOKEN_URL, fetchAccessToken, resetTokenCache, invalidateTokenCache, request, tossRequest, normalizeApiError, symbolCurrency, getAccounts, getHoldings, getBuyingPower, getSellableQuantity, getCommissions, getPrices, getOrderbook, getPriceLimits, getTrades, getCandles, getStocks, listStocksAll, discoverSymbols, getExchangeRate, getMarketCalendar, getStockWarnings, getOrders, getOrder, createOrder, cancelOrder, modifyOrder, getConditionalOrders, getConditionalOrder, createConditionalOrder, modifyConditionalOrder, cancelConditionalOrder, createExchangeOrder, getExchangeOrders, createTossInvestAdapter, normalizeSymbol, getOrderbookBalance, getIndex, getIndexHistory, getSectors, getSectorStocks, getTrendingStocks, getNews, getFinancials, getEarnings, getDividends, getSplits, getIpoCalendar, getTransactions, getBalanceHistory, getMarginInfo, getWatchlist, addToWatchlist, removeFromWatchlist, getPriceAlerts, createPriceAlert, deletePriceAlert, getMarketHours, getStockDetail, getOrderEstimate, getQuotes, getRealtimeSubscriptions, getExchangeRateHistory };
+module.exports = { BASE_URL, TOKEN_URL, fetchAccessToken, resetTokenCache, invalidateTokenCache, request, tossRequest, normalizeApiError, symbolCurrency, getAccounts, getHoldings, getBuyingPower, getSellableQuantity, getCommissions, getPrices, getOrderbook, getPriceLimits, getTrades, getCandles, getStocks, listStocksAll, discoverSymbols, liquidityFloorReason, getExchangeRate, getMarketCalendar, getStockWarnings, getOrders, getOrder, createOrder, cancelOrder, modifyOrder, getConditionalOrders, getConditionalOrder, createConditionalOrder, modifyConditionalOrder, cancelConditionalOrder, createExchangeOrder, getExchangeOrders, createTossInvestAdapter, normalizeSymbol, getOrderbookBalance, getIndex, getIndexHistory, getSectors, getSectorStocks, getTrendingStocks, getNews, getFinancials, getEarnings, getDividends, getSplits, getIpoCalendar, getTransactions, getBalanceHistory, getMarginInfo, getWatchlist, addToWatchlist, removeFromWatchlist, getPriceAlerts, createPriceAlert, deletePriceAlert, getMarketHours, getStockDetail, getOrderEstimate, getQuotes, getRealtimeSubscriptions, getExchangeRateHistory };

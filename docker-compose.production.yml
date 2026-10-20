@@ -22,7 +22,7 @@ services:
     container_name: minitok-invest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9100:9100"
+      - "9100:9100"
     env_file:
       - /opt/minitok/addons/invest/.env
     environment:
@@ -104,6 +104,8 @@ services:
       context: /opt/minitok/addons/invest
       dockerfile: Dockerfile.admin
     container_name: minitok-admin
+    ports:
+      - "127.0.0.1:9101:9101"
     restart: unless-stopped
     env_file:
       - /opt/minitok/addons/invest/.env
@@ -111,11 +113,13 @@ services:
       - DOCKER_ENV=true
       - BOT_CONTAINER_NAME=minitok-invest
       - BOT_INTERNAL_URL=http://minitok-invest:9100
+      - ADMIN_HTTP_URL=http://minitok-admin:9101
       - BOT_LOG_PATH=/var/log/bot/bot.log
       - BOT_ERROR_LOG_PATH=/var/log/bot/bot-error.log
       - ADMIN_SERVICE_TOKEN=${ADMIN_SERVICE_TOKEN}
       - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS}
       - DOCKER_HOST=tcp://minitok-docker-proxy:2375
+      - ADMIN_HTTP_PORT=9101
       # [Summary] Read the runner's durable event store (FILL events) so the
       # admin's P&L commands and the end-of-session summary have real data.
       - STORE_DIR=/app/state/events

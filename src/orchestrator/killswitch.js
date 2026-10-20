@@ -81,7 +81,7 @@ function createKillswitch(options = {}) {
     // never latches. The per-order exposure layer (src/agent/exposure.js)
     // remains the hard, direction-aware enforcement of the cap.
     if (!isSell && m.totalExposurePct != null && m.totalExposurePct > cfg.maxTotalExposurePct * 1.1) {
-      softBlock = "Exposure limit breached by >10% (" + m.totalExposurePct.toFixed(1) + "% > " + (cfg.maxTotalExposurePct * 1.1).toFixed(1) + "%)";
+      softBlock = "Exposure limit exceeded: current exposure " + m.totalExposurePct.toFixed(1) + "% is over the " + (cfg.maxTotalExposurePct * 1.1).toFixed(1) + "% tolerance (limit " + cfg.maxTotalExposurePct + "% plus 10%)";
     }
 
     if (trigger) {
