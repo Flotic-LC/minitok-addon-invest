@@ -8,6 +8,7 @@ test("createSelfHealer returns expected API", () => {
   assert.equal(typeof h.reportIncident, "function");
   assert.equal(typeof h.tick, "function");
   assert.equal(typeof h.isMitigated, "function");
+  assert.equal(typeof h.isMitigatedFor, "function");
   assert.equal(typeof h.getActiveMitigations, "function");
   assert.equal(typeof h.getHistory, "function");
   assert.equal(typeof h.stats, "function");
@@ -79,6 +80,43 @@ test("tick expires mitigations", () => {
   t += 310_000; // exceed 300s cooldown
   h.tick({});
   assert.equal(h.isMitigated("LLM_DEGRADATION"), false);
+});
+
+test("a liquidity shock blocks only the symbol that showed it", () => {
+  // [2026-10-21] The mitigation used to be global: one illiquid name with a
+  // wide spread stopped the whole book from buying.
+  let t = 0;
+  const h = createSelfHealer({ now: () => t });
+  h.tick({ spreadBps: 400, symbol: "ILLIQ" });
+  assert.equal(h.isMitigated("LIQUIDITY_SHOCK"), true);
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "ILLIQ"), true);
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "AAPL"), false);
+});
+
+test("a liquidity shock on one symbol does not block a second shocked symbol", () => {
+  let t = 0;
+  const h = createSelfHealer({ now: () => t });
+  h.tick({ spreadBps: 400, symbol: "ILLIQ" });
+  h.tick({ spreadBps: 400, symbol: "ILLIQ2" });
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "ILLIQ"), true);
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "ILLIQ2"), true);
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "MSFT"), false);
+});
+
+test("a liquidity shock expires for its symbol", () => {
+  let t = 0;
+  const h = createSelfHealer({ now: () => t });
+  h.tick({ spreadBps: 400, symbol: "ILLIQ" });
+  t += 310_000; // exceed the 300s cooldown
+  assert.equal(h.isMitigatedFor("LIQUIDITY_SHOCK", "ILLIQ"), false);
+});
+
+test("other incident types stay global", () => {
+  let t = 0;
+  const h = createSelfHealer({ now: () => t });
+  h.reportIncident("REGIME_MISMATCH", { flips: 3 });
+  assert.equal(h.isMitigatedFor("REGIME_MISMATCH", "AAPL"), true);
+  assert.equal(h.isMitigatedFor("REGIME_MISMATCH", "MSFT"), true);
 });
 
 test("tick auto-detects REGIME_MISMATCH after 3 consecutive flips", () => {

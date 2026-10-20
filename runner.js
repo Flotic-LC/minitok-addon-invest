@@ -2667,7 +2667,9 @@ async function askAI(marketData, opts) {
             var _mid = (_bestBid + _bestAsk) / 2;
             var _spreadBps = ((_bestAsk - _bestBid) / _mid) * 10000;
             orderbookCtx.spreadBps = Number(_spreadBps.toFixed(2));
-            selfHealer.tick({ spreadBps: orderbookCtx.spreadBps });
+            // [2026-10-21] The symbol is passed so a liquidity shock is
+            // attributed to the name that showed it, not to the whole book.
+            selfHealer.tick({ spreadBps: orderbookCtx.spreadBps, symbol: sym });
           }
         } catch {}
       }
@@ -4296,7 +4298,13 @@ async function _executeDecisionInner(decision, sym) {
   }
 
   // [Phase J / L4.5] Self-healing liquidity shock guard before BUY
-  if (input.side === "BUY" && selfHealer.isMitigated("LIQUIDITY_SHOCK")) {
+  // [2026-10-21] Per symbol: a wide spread on one illiquid name must not
+  // block buys of the liquid names. The mitigation was global, so a single
+  // shocked symbol stopped the whole book from buying for the cooldown.
+  const _shockBlocked = (typeof selfHealer.isMitigatedFor === "function")
+    ? selfHealer.isMitigatedFor("LIQUIDITY_SHOCK", input.symbol)
+    : selfHealer.isMitigated("LIQUIDITY_SHOCK");
+  if (input.side === "BUY" && _shockBlocked) {
     console.log("[exec] Skipped: self-healer LIQUIDITY_SHOCK mitigation active for " + input.symbol);
     journalEntry({ type: "ORDER_BLOCKED", action: "BUY", symbol: input.symbol, reason: "LIQUIDITY_SHOCK" });
     return;

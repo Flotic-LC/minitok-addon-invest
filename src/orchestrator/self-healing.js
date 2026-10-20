@@ -68,6 +68,12 @@ function createSelfHealer(options) {
   const history = [];
   const activeMitigations = {};
   const countsPerType = {};
+  // [2026-10-21] Symbols whose own orderbook showed a liquidity shock.
+  // The mitigation used to be global: one illiquid name with a wide spread
+  // armed LIQUIDITY_SHOCK and blocked EVERY buy in the book for the whole
+  // cooldown. The set keeps the mitigation per-symbol, so a shocked name is
+  // blocked while liquid names stay tradable.
+  const shockedSymbols = new Map(); // symbol -> expiresAt
   const consecutiveCounters = {
     regimeFlips: 0,
     walkForwardRejects: 0,
@@ -87,6 +93,12 @@ function createSelfHealer(options) {
     }
     const t = now();
     const existing = activeMitigations[type];
+
+    // [2026-10-21] Record which symbol is in liquidity shock, so the
+    // mitigation can be applied to that symbol alone.
+    if (type === "LIQUIDITY_SHOCK" && ctx && ctx.symbol) {
+      shockedSymbols.set(String(ctx.symbol).toUpperCase(), t + (cooldowns[type] || 60_000));
+    }
 
     if (existing && existing.expiresAt > t) {
       const entry = {
@@ -247,7 +259,7 @@ function createSelfHealer(options) {
 
     // Auto-detect LIQUIDITY_SHOCK via spread
     if (m.spreadBps != null && m.spreadBps > cfg.liquidityShockSpreadBps) {
-      reportIncident("LIQUIDITY_SHOCK", { spreadBps: m.spreadBps });
+      reportIncident("LIQUIDITY_SHOCK", { spreadBps: m.spreadBps, symbol: m.symbol || null });
     }
 
     // Auto-detect LLM_DEGRADATION via latency / parse errors
@@ -277,6 +289,26 @@ function createSelfHealer(options) {
       if (activeMitigations[k].expiresAt > t) return true;
     }
     return false;
+  }
+
+  /**
+   * Is this specific symbol under a mitigation?
+   *
+   * LIQUIDITY_SHOCK is per symbol: a wide spread on one illiquid name must
+   * not stop the bot from buying a liquid one. Every other incident type is
+   * global and applies to whichever symbol is being traded.
+   */
+  function isMitigatedFor(type, symbol) {
+    if (!isMitigated(type)) return false;
+    if (type !== "LIQUIDITY_SHOCK") return true;
+    if (!symbol) return true; // no symbol context — keep the global behaviour
+    const t = now();
+    // Prune expired entries so the set cannot grow without bound.
+    for (const [k, exp] of shockedSymbols) {
+      if (exp <= t) shockedSymbols.delete(k);
+    }
+    const exp = shockedSymbols.get(String(symbol).toUpperCase());
+    return !!exp && exp > t;
   }
 
   function getActiveMitigations() {
@@ -385,6 +417,7 @@ function createSelfHealer(options) {
     reportIncident: reportIncident,
     tick: tick,
     isMitigated: isMitigated,
+    isMitigatedFor: isMitigatedFor,
     getActiveMitigations: getActiveMitigations,
     getHistory: getHistory,
     stats: stats,
