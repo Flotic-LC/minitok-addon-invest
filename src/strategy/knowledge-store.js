@@ -63,19 +63,9 @@ function createKnowledgeStore(options = {}) {
   const p = { ...DEFAULTS, ...options };
   let data = loadFile(p.path);
 
-  let _persistTimer = null;
-  function schedulePersist() {
-    if (_persistTimer) return;
-    _persistTimer = setTimeout(function() {
-      _persistTimer = null;
-      saveFile(p.path, data);
-    }, 5000);
-  }
+  function schedulePersist() { persist(); }
   function persist() { saveFile(p.path, data); }
-  function flushPersist() {
-    if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
-    saveFile(p.path, data);
-  }
+  function flushPersist() { saveFile(p.path, data); }
 
   function updateAggregates(symbol, strategy, pnl) {
     if (!data.symbols[symbol]) {

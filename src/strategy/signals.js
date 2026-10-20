@@ -226,7 +226,17 @@ function entrySignal(ctx, p) {
     return { action: "HOLD", score: 0, reasons: [...reasons, "invalid minScore config (must be >=0)"], strategy: null };
   }
 
+  // [AGGRESSIVE] If score > 0 but no specific strategy matched, use default_buy
+  if (!strategy && score > 0) {
+    strategy = "default_buy";
+    reasons.push("default_buy: score=" + score + " (no specific strategy but positive signals)");
+  }
   if (score >= p.minScore && strategy) {
+    return { action: "BUY", score, reasons, strategy };
+  }
+  // [AGGRESSIVE] If score >= 0 and minScore is 0, allow any positive signal
+  if (p.minScore === 0 && score > 0 && !strategy) {
+    strategy = "weak_signal";
     return { action: "BUY", score, reasons, strategy };
   }
   return { action: "HOLD", score, reasons, strategy };

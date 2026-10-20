@@ -88,23 +88,13 @@ function createTradingMemory(options = {}) {
   let data = loadFile(filePath);
   let dirty = false;
 
-  let _persistTimer = null;
-  function schedulePersist() {
-    if (_persistTimer) return;
-    _persistTimer = setTimeout(function() {
-      _persistTimer = null;
-      persist();
-    }, 5000);
-  }
+  function schedulePersist() { persist(); }
   function persist() {
     if (!dirty) return;
     saveFile(filePath, data);
     dirty = false;
   }
-  function flushPersist() {
-    if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
-    persist();
-  }
+  function flushPersist() { persist(); }
 
   function recordDecision(decision) {
     if (!decision || !decision.symbol) return false;
