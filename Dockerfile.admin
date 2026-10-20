@@ -25,6 +25,14 @@ RUN cd /app && git init -q && \
     git config user.email "admin-bot@minitok" && \
     git config user.name "minitok-admin-bot"
 
+# [FIX] Copy the deployed source AFTER the git reset. `git reset --hard` restores
+# origin/master over the working tree, so copying before it silently discarded
+# every deployed admin.js / src change — the container ran GitHub master code
+# instead of what was deployed. The git history is still needed for cline, so the
+# reset stays; the deployed tree is layered on top of it.
+COPY admin.js ./
+COPY src ./src
+
 RUN chown -R admin:admin /app
 
 ENV TZ=Asia/Seoul

@@ -580,17 +580,22 @@ async function _sendTelegramRaw(message) {
 }
 // [Phase 4.2] Severity-routed notifications with rate limiting
 const { createNotifier } = require("./src/agent/notifier");
+// [Notify classification] Shared severity filter (runner + admin).
+// NOTIFY_LEVEL: critical (default, only critical) | warn | all
+const { createNotifyLevel } = require("./src/core/notify-level");
+const notifyLevel = createNotifyLevel(process.env);
 const _notifier = createNotifier(_sendTelegramRaw);
 // Legacy signature: plain string = info (backward compat). Object: { msg, severity }
 async function sendTelegramAlert(message, severity) {
-  // [notify-relaxed] critical + warn reach Telegram; info muted (log only)
-  // Scheduled info summaries (daily report) are whitelisted so they still arrive.
+  // [notify-classified] Every Telegram alert passes the shared severity filter.
+  // At the default "critical" level only critical events reach the operator:
+  // killswitch, hard stop, trading halt, WS circuit breaker, self-healing
+  // escalation. The admin owns the end-of-session daily summary, so the runner
+  // no longer whitelists its own daily report.
   const _plain = typeof message === "string" ? message : (message && message.msg);
   const _sev = (typeof message === "string") ? (severity || "info") : ((message && message.severity) || "info");
-  const _allowedInfo = ["*Daily Report*"];
-  const _infoAllowed = _allowedInfo.some(function(p) { return _plain && String(_plain).includes(p); });
-  if (_sev !== "critical" && _sev !== "warn" && !_infoAllowed) {
-    try { console.log("[notify-muted] sev=" + _sev + " " + String(_plain || "").split("\n")[0].slice(0, 100)); } catch {}
+  if (!notifyLevel.allowed(_sev)) {
+    try { console.log("[notify-muted] sev=" + _sev + " level=" + notifyLevel.level + " " + String(_plain || "").split("\n")[0].slice(0, 100)); } catch {}
     return { sent: false, muted: true, severity: _sev };
   }
   try {
@@ -1783,7 +1788,9 @@ async function heldPositionSweep() {
           if (!_lastExchangeAlertAt || (Date.now() - _lastExchangeAlertAt) > EXCHANGE_ALERT_THROTTLE_MS) {
             _lastExchangeAlertAt = Date.now();
             console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested (≈" + Math.round(exchangeAmount * fxRate) + " KRW, target " + krwTarget + " KRW; manual exchange required, Toss API has no FX endpoint)");
-            sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD → KRW 수동 환전 필요\n≈" + Math.round(exchangeAmount * fxRate) + " KRW (목표 " + krwTarget + " KRW)\n현재 KRW=" + Math.round(cashKrw) + ", USD=" + usdCash.toFixed(2) + ", rate=" + fxRate + "\nToss 앱에서 환전 → 이후 자동 매매 재개", "warn");
+            // [Notify classification] A blocked currency pool cannot be fixed by
+            // the bot — it needs a manual exchange, so it is a critical event.
+            sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD → KRW 수동 환전 필요\n≈" + Math.round(exchangeAmount * fxRate) + " KRW (목표 " + krwTarget + " KRW)\n현재 KRW=" + Math.round(cashKrw) + ", USD=" + usdCash.toFixed(2) + ", rate=" + fxRate + "\nToss 앱에서 환전 → 이후 자동 매매 재개", "critical");
             journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, suggestedKrw: Math.round(exchangeAmount * fxRate), krwTarget: krwTarget, fxRate: fxRate, reason: "no_api_support" });
           }
         }
@@ -1808,7 +1815,7 @@ async function heldPositionSweep() {
           if (!_lastExchangeAlertAt || (Date.now() - _lastExchangeAlertAt) > EXCHANGE_ALERT_THROTTLE_MS) {
             _lastExchangeAlertAt = Date.now();
             console.log("[auto-exchange] ALERT: KRW->USD " + exchangeKrw + " suggested (manual exchange required)");
-            sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2 + "\nToss app에서 수동 환전 필요", "warn");
+            sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2 + "\nToss app에서 수동 환전 필요", "critical");
             journalEntry({ type: "EXCHANGE_ALERT", from: "KRW", to: "USD", suggestedAmount: exchangeKrw, fxRate: fx2, reason: "no_api_support" });
           }
         }

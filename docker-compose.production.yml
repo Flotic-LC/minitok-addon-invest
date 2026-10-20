@@ -116,8 +116,12 @@ services:
       - ADMIN_SERVICE_TOKEN=${ADMIN_SERVICE_TOKEN}
       - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS}
       - DOCKER_HOST=tcp://minitok-docker-proxy:2375
+      # [Summary] Read the runner's durable event store (FILL events) so the
+      # admin's P&L commands and the end-of-session summary have real data.
+      - STORE_DIR=/app/state/events
     volumes:
       - invest-logs:/var/log/bot:ro
+      - invest-state:/app/state:ro
       - cline-data:/home/admin/.cline
     depends_on:
       - invest-bot

@@ -28,6 +28,7 @@ const adminEnvSchema = {
   AIFROMU_MODEL: { type: "string", default: "luna-6" },
   AI_ANALYSIS_INTERVAL_MS: { type: "integer", min: 60000, max: 3600000, default: 900000 },
   ALERT_COOLDOWN_MS: { type: "integer", min: 60000, max: 86400000, default: 3600000 },
+  NOTIFY_LEVEL: { type: "string", allowed: ["critical", "warn", "all"], default: "critical" },
   PROMETHEUS_PORT: { type: "integer", min: 1024, max: 65535, default: 9100 },
 };
 // Validate only admin-specific vars (don't require TOSS_* here)
@@ -85,12 +86,13 @@ function shouldAlert(key) {
   lastAlertAt.set(key, now);
   return true;
 }
-// [Notify reduction] Level filter: "critical" (only critical), "warn" (critical+warn), "all" (everything)
-const NOTIFY_LEVEL = (process.env.NOTIFY_LEVEL || "warn").toLowerCase();
+// [Notify classification] Shared severity filter (runner + admin).
+// NOTIFY_LEVEL: critical (default, only critical) | warn (critical+warn) | all (everything)
+const { createNotifyLevel } = require("./src/core/notify-level");
+const notifyLevel = createNotifyLevel(process.env);
+const NOTIFY_LEVEL = notifyLevel.level;
 function notifyAllowed(severity) {
-  if (NOTIFY_LEVEL === "all") return true;
-  if (NOTIFY_LEVEL === "warn") return severity === "critical" || severity === "warn";
-  return severity === "critical"; // "critical" level
+  return notifyLevel.allowed(severity);
 }
 
 function log(msg) {
@@ -151,26 +153,64 @@ function restartService() {
 }
 
 // [P2-9 FIX] Cross-platform log reading
-function readRecentLogs(lineCount, logPath) {
-  if (IS_WINDOWS) {
-    // Windows: use PowerShell Get-Content
-    const psCmd = `powershell -Command "Get-Content '${logPath}' -Tail ${lineCount} -ErrorAction SilentlyContinue"`;
-    return exec(psCmd) || "";
-  } else {
-    return exec("tail", ["-" + lineCount, logPath]) || "";
+// The runner writes dated files (bot-YYYY-MM-DD.log), so a configured fixed
+// path usually does not exist — every log-based check silently saw an empty
+// log. Fall back to the newest matching file in the same directory.
+function resolveLogFile(logPath) {
+  try {
+    if (logPath && fs.existsSync(logPath)) return logPath;
+    const dir = path.dirname(logPath || "/var/log/bot/bot.log");
+    if (!fs.existsSync(dir)) return logPath;
+    const base = path.basename(logPath || "bot.log");
+    const prefix = base.replace(/\.(err\.)?log$/, "");
+    const files = fs.readdirSync(dir)
+      .filter(f => f.indexOf(prefix) === 0 && /\.log$/.test(f) && f.indexOf(".err.") === -1)
+      .sort();
+    if (!files.length) return logPath;
+    return path.join(dir, files[files.length - 1]);
+  } catch (e) {
+    return logPath;
   }
 }
 
-async function sendTelegram(message) {
+function readRecentLogs(lineCount, logPath) {
+  const resolved = resolveLogFile(logPath);
+  if (IS_WINDOWS) {
+    // Windows: use PowerShell Get-Content
+    const psCmd = `powershell -Command "Get-Content '${resolved}' -Tail ${lineCount} -ErrorAction SilentlyContinue"`;
+    return exec(psCmd) || "";
+  } else {
+    return exec("tail", ["-" + lineCount, resolved]) || "";
+  }
+}
+
+async function sendTelegram(message, opts) {
   if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) return;
    const text = `[Admin] ${message}`;
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  const payload = { chat_id: TELEGRAM_CHAT_ID, text };
+  // parseMode: "" -> plain text (parse_mode omitted). Anything else -> Markdown.
+  const parseMode = (opts && typeof opts.parseMode === "string") ? opts.parseMode : "Markdown";
+  if (parseMode) payload.parse_mode = parseMode;
   try {
-    await fetch(url, {
+    let resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "Markdown" })
+      body: JSON.stringify(payload)
     });
+    if (!resp.ok && payload.parse_mode) {
+      // Telegram rejects unbalanced Markdown with HTTP 400. Retry as plain text
+      // so a formatting slip can never swallow a critical report.
+      const detail = await resp.text();
+      log("Telegram send failed (" + resp.status + "), retrying as plain text: " + detail.substring(0, 200));
+      delete payload.parse_mode;
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok) log("Telegram plain-text retry failed (" + resp.status + ")");
+    }
   } catch (e) {
     log("Telegram send failed: " + e.message);
   }
@@ -225,14 +265,16 @@ async function checkHealth() {
     if (!pid) {
       log(`CRITICAL: runner.js is not running.`);
       audit.error({ source: "admin", code: "bot_down", message: "runner.js process not found" });
-      sendTelegram(`🚨 *CRITICAL*: invest bot stopped!`);
+      const critical = notifyAllowed("critical");
+      if (critical) sendTelegram(`🚨 *CRITICAL*: invest bot stopped!`);
+      // The recovery always runs — only the notification is level-filtered.
       if (!IS_WINDOWS) {
         log("Restarting via systemd...");
-        sendTelegram(`Auto-restarting via systemd...`);
+        if (critical) sendTelegram("Auto-restarting via systemd...");
         restartService();
       } else {
         log("Windows: manual restart required.");
-        sendTelegram(`⚠️ Manual restart required (Windows).`);
+        if (critical) sendTelegram("⚠️ Manual restart required (Windows).");
       }
       return;
     }
@@ -258,15 +300,16 @@ async function checkHealth() {
       
       if (pattern === "TARGET_ENGINE_HALTED" || pattern === "Fatal:") {
         log("Critical error detected.");
+        const critical = notifyAllowed("critical");
         if (!IS_WINDOWS) {
           log("Restarting bot via systemd...");
           restartService();
-          if (shouldAlert("restart:fatal")) {
+          if (shouldAlert("restart:fatal") && critical) {
             sendTelegram(`🔄 Auto-restarted invest bot via systemd`);
           }
         } else {
           log("Windows: manual intervention required for critical error.");
-          if (shouldAlert("restart:fatal")) {
+          if (shouldAlert("restart:fatal") && critical) {
             sendTelegram(`⚠️ Critical error detected. Manual restart required (Windows).`);
           }
         }
@@ -331,7 +374,8 @@ function checkTradingActivity(logs) {
     const silentMin = Math.round(silentMs / 60000);
     if (shouldAlert("no-trade")) {
       log(`WARNING: No trading activity detected for ${silentMin} minutes.`);
-      if (notifyAllowed("warn")) {
+      // A bot that stopped trading needs a human, so this is a critical event.
+      if (notifyAllowed("critical")) {
         let wsStatus = "N/A";
         let aiErrors = "0";
         if (!IS_WINDOWS) {
@@ -426,8 +470,9 @@ async function aiAnalyzeLogs() {
 
 log(`Admin started (standalone). Service: ${BOT_SERVICE}, Interval: ${CHECK_INTERVAL_MS}ms, AI analysis every ${AI_ANALYSIS_INTERVAL_MS / 60000}min`);
 audit.config({ key: "admin_start", oldValue: null, newValue: `service=${BOT_SERVICE} interval=${CHECK_INTERVAL_MS}ms prometheus=:${PROMETHEUS_PORT}`, source: "admin" });
-// [Notify reduction] Startup message only if NOTIFY_STARTUP=true
-if (process.env.NOTIFY_STARTUP === "true") {
+// [Notify classification] Startup message only if NOTIFY_STARTUP=true, and only
+// when the level filter allows a critical event.
+if (process.env.NOTIFY_STARTUP === "true" && notifyAllowed("critical")) {
   sendTelegram(`✅ *Admin Online (Standalone)*\nWatching: \`${BOT_SERVICE}\`\nAI Model: ${AI_MODEL}\nPrometheus: :${PROMETHEUS_PORT}`);
 }
 
@@ -440,6 +485,109 @@ setInterval(() => {
 setInterval(() => {
   aiAnalyzeLogs().catch(function(e) { log("AI analysis loop error: " + e.message); });
 }, AI_ANALYSIS_INTERVAL_MS);
+
+// ============================================================================
+// [Daily summary] End-of-session trading summary
+// ============================================================================
+// The runner only raises critical alerts; the admin owns the periodic trading
+// report. It is sent after a market session closes and covers the session
+// window rather than a calendar day: the US session runs 22:30-05:00 KST and
+// straddles midnight, so a KST-date rollup would split one session in two.
+
+const { completedSessions } = require("./src/core/session-window");
+const { formatSessionSummary } = require("./src/core/session-summary");
+
+// Persistent across container recreation (cline-data volume) so a restart does
+// not resend a summary that was already delivered.
+const SUMMARY_STATE_FILE = process.env.ADMIN_SUMMARY_STATE_FILE || "/home/admin/.cline/admin-summary-state.json";
+// A session that closed longer ago than this is not reported (cold start, weekend replay).
+const SUMMARY_MAX_AGE_MIN = Number(process.env.DAILY_SUMMARY_MAX_AGE_MIN || 180);
+// A session without trades is only reported when nothing has been reported for
+// this long, so a quiet day stays quiet but a stopped bot is still noticed.
+const SUMMARY_QUIET_INTERVAL_MIN = Number(process.env.DAILY_SUMMARY_QUIET_INTERVAL_MIN || 720);
+
+function readSummaryState() {
+  try { return JSON.parse(fs.readFileSync(SUMMARY_STATE_FILE, "utf8")); } catch { return {}; }
+}
+function writeSummaryState(obj) {
+  try { fs.writeFileSync(SUMMARY_STATE_FILE, JSON.stringify(obj)); } catch (e) { log("[summary] state write failed: " + e.message); }
+}
+function sessionKey(s) {
+  return s.market + "@" + s.closeAt.toISOString();
+}
+
+async function buildSessionSummary(session, pnl) {
+  const h = await botFetchFromRunner("/health");
+  const health = h.json || {};
+  // /health does not expose the engine limits; /admin/state does.
+  try {
+    const st = await adminFetchFromRunner("/admin/state");
+    if (st.json && st.json.limits) health.limits = st.json.limits;
+  } catch (e) { /* limits are optional in the summary */ }
+  return formatSessionSummary({ session, pnl, health });
+}
+
+/** Deliver a session summary and record that it was sent. */
+async function deliverSummary(session, pnl, now) {
+  const body = await buildSessionSummary(session, pnl);
+  // Plain text: the summary carries trade data (symbols, price strings) that
+  // Telegram's legacy Markdown parser can reject outright.
+  await sendTelegram(body, { parseMode: "" });
+  const state = readSummaryState();
+  state.sent = state.sent || {};
+  state.sent[sessionKey(session)] = now.toISOString();
+  state.lastSentAt = now.toISOString();
+  if (pnl.lastFillTs) state.lastReportedFillTs = pnl.lastFillTs;
+  writeSummaryState(state);
+  log("[summary] sent " + session.market + " session summary: " + body.split("\n").slice(0, 3).join(" | "));
+  audit.custom("admin_action", { action: "daily-summary", market: session.market, closeAt: session.closeAt.toISOString(), trades: pnl.totalTrades, realizedPnl: pnl.realizedPnl });
+}
+
+/**
+ * Send the end-of-session summary for the most recently closed session.
+ *
+ * Only that session is reported: its window is the latest trading period, and
+ * older windows are either superseded by it or already covered. Fills already
+ * reported are excluded, so overlapping session windows cannot report the same
+ * trade twice.
+ */
+async function checkDailySummary() {
+  try {
+    const now = new Date();
+    const sessions = completedSessions(now);
+    if (!sessions.length) return;
+    const state = readSummaryState();
+    const sent = state.sent || {};
+    const lastSentAt = state.lastSentAt ? Date.parse(state.lastSentAt) : 0;
+    const lastReportedFillTs = state.lastReportedFillTs ? Date.parse(state.lastReportedFillTs) : 0;
+
+    const s = sessions[0];
+    const key = sessionKey(s);
+    if (sent[key]) return;
+    const ageMin = (now.getTime() - s.closeAt.getTime()) / 60000;
+    if (ageMin < 0) return;
+
+    const pnl = computePnlInRange(s.openAt.getTime(), s.closeAt.getTime(), lastReportedFillTs);
+    if (pnl.totalTrades === 0) {
+      // Nothing new to report. Stay quiet unless nothing has been reported for
+      // a while, so a quiet day stays quiet but a stopped bot is still noticed.
+      const quietFor = lastSentAt ? (now.getTime() - lastSentAt) / 60000 : Infinity;
+      if (quietFor < SUMMARY_QUIET_INTERVAL_MIN) return;
+      if (ageMin > SUMMARY_MAX_AGE_MIN) return;
+    }
+    await deliverSummary(s, pnl, now);
+  } catch (e) {
+    log("[summary] error: " + e.message);
+  }
+}
+
+// Summary check (every 60s, aligned with the health loop)
+setInterval(() => {
+  checkDailySummary().catch(function(e) { log("Daily summary loop error: " + e.message); });
+}, CHECK_INTERVAL_MS);
+setTimeout(function() {
+  checkDailySummary().catch(function(e) { log("Initial daily summary error: " + e.message); });
+}, 90000);
 
 // --- [Role Separation] Admin HTTP server for non-trading data collection ---
 const http = require("http");
@@ -679,23 +827,55 @@ for (const c of CORRECTION_MEMO) {
  */
 function computeDailyPnl(dateStr) {
   const target = dateStr || kstDateString();
-  let fills = [];
-  try {
-    fills = eventStore.query({ types: ["FILL"], limit: 10000 });
-  } catch (e) {
-    log("[pnl] event store query failed: " + e.message);
-  }
-
+  const fills = queryFills();
   // Always convert UTC timestamps to KST (UTC+9) for date matching.
   // The bot operates in KST context; all daily boundaries must use KST.
-  const dayFills = fills.filter(function(f) {
-    if (!f.ts) return false;
-    try {
-      const kst = new Date(new Date(f.ts).getTime() + 9 * 3600 * 1000);
-      return kst.toISOString().slice(0, 10) === target;
-    } catch { return false; }
-  });
+  const dayFills = fills.filter(function(f) { return f.ts && kstDateOf(f.ts) === target; });
+  return computePnlForFills(dayFills, target, target);
+}
 
+/**
+ * Aggregate FILL events inside an arbitrary time window. A calendar day cannot
+ * express a trading day here: the US session runs 22:30-05:00 KST and
+ * straddles midnight, so the end-of-session summary uses the session window.
+ * `sinceTs` excludes fills that an earlier summary already reported, so
+ * overlapping session windows cannot report the same trade twice.
+ */
+function computePnlInRange(fromMs, toMs, sinceTs) {
+  const fills = queryFills();
+  const floor = sinceTs ? new Date(sinceTs).getTime() : 0;
+  const inRange = fills.filter(function(f) {
+    if (!f.ts) return false;
+    const t = Date.parse(f.ts);
+    return !isNaN(t) && t >= fromMs && t <= toMs && t > floor;
+  });
+  const label = kstDateOf(fromMs) + "~" + kstDateOf(toMs);
+  return computePnlForFills(inRange, label, kstDateOf(fromMs));
+}
+
+/** All FILL events, oldest first. */
+function queryFills() {
+  try {
+    return eventStore.query({ types: ["FILL"], limit: 10000 });
+  } catch (e) {
+    log("[pnl] event store query failed: " + e.message);
+    return [];
+  }
+}
+
+/** KST calendar date of a timestamp. */
+function kstDateOf(ts) {
+  try {
+    return new Date(new Date(ts).getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  } catch { return null; }
+}
+
+/**
+ * Shared aggregation over a set of FILL events.
+ * Returns { date, buys, sells, totalTrades, netPnl, commission, tax,
+ *           wins, losses, winRate, trades[], corrections[] }.
+ */
+function computePnlForFills(dayFills, target, correctionDate) {
   const sells = dayFills.filter(function(f) { return f.side === "SELL"; });
   const buys = dayFills.filter(function(f) { return f.side === "BUY"; });
 
@@ -722,7 +902,7 @@ function computeDailyPnl(dateStr) {
     // Substitutes the correct netPnl and annotates the trade record.
     let correction = null;
     if (suspicious) {
-      const key = target + "|" + s.symbol + "|" + s.side + "|" + s.ts;
+      const key = correctionDate + "|" + s.symbol + "|" + s.side + "|" + s.ts;
       correction = _correctionIndex.get(key) || null;
       if (correction) {
         net = correction.correctedNetPnl;
@@ -779,6 +959,8 @@ function computeDailyPnl(dateStr) {
     buys: buys.length,
     sells: sellCount,
     totalTrades: dayFills.length,
+    // Newest fill in the set — used to avoid reporting the same fill twice.
+    lastFillTs: dayFills.length ? dayFills[dayFills.length - 1].ts : null,
     // Realized PnL — this is the actual profit/loss after ALL costs
     realizedPnl: Math.round(realizedPnl),
     // Cost breakdown (already included in realizedPnl, shown for reference)
@@ -882,6 +1064,7 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
       "/pnl [YYYY-MM-DD] — daily P&L (default today, KST)\n" +
       "/trades [N] — recent N fills (default 10)\n" +
       "/daily — today's trade summary\n" +
+      "/summary — last completed session summary (market close report)\n" +
       "/compare <d1> <d2> — compare two dates' P&L\n" +
       "/history — list dates with trade records\n" +
       "/selfheal — self-healing state\n" +
@@ -1423,6 +1606,19 @@ async function handleBotCommand(chatId, rawCmd, args, fullName) {
       return replyToChat(chatId, body);
     } catch (e) {
       return replyToChat(chatId, "❌ /daily error: " + e.message);
+    }
+  }
+
+  if (cmd === "/summary") {
+    try {
+      const sessions = completedSessions();
+      if (!sessions.length) return replyToChat(chatId, "📊 종결된 시장 세션이 없습니다.");
+      const s = sessions[0];
+      const pnl = computePnlInRange(s.openAt.getTime(), s.closeAt.getTime());
+      const body = await buildSessionSummary(s, pnl);
+      return replyToChat(chatId, body);
+    } catch (e) {
+      return replyToChat(chatId, "❌ /summary error: " + e.message);
     }
   }
 
