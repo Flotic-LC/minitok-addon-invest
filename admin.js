@@ -883,12 +883,15 @@ function computePnlForFills(dayFills, target, correctionDate) {
   // netPnl in each SELL event already includes: grossPnl - buyCommission - sellCommission - sellTax
   // So we sum netPnl directly. Commission/tax are shown as reference breakdowns, NOT added again.
   let realizedPnl = 0, totalCommission = 0, totalTax = 0, grossProfit = 0, grossLoss = 0;
-  let wins = 0, losses = 0, suspiciousCount = 0;
+  let wins = 0, losses = 0, suspiciousCount = 0, unknownPnlCount = 0;
   const closedTrades = [];
   const appliedCorrections = [];
 
   for (const s of sells) {
     let net = Number(s.netPnl) || 0;
+    // [P10-2] The runner marks a fill as pnlUnknown when the entry price could
+    // not be resolved, so the realised P&L is genuinely unknown — not zero.
+    if (s.pnlUnknown === true || s.netPnl == null) unknownPnlCount++;
     const bc = Number(s.buyCommission) || 0;
     const sc = Number(s.sellCommission) || 0;
     const tx = Number(s.sellTax) || 0;
@@ -973,6 +976,9 @@ function computePnlForFills(dayFills, target, correctionDate) {
     closedTrades: closedTrades,
     openPositions: openPositions,
     suspiciousCount: suspiciousCount,
+    // SELL fills whose entry price could not be resolved — the realised P&L
+    // of those trades is unknown, not zero.
+    unknownPnlCount: unknownPnlCount,
     corrections: appliedCorrections,
     correctionCount: appliedCorrections.length,
     // Legacy field for backward compatibility

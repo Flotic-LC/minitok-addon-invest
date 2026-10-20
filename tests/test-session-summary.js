@@ -99,3 +99,11 @@ test("session-summary: suspicious fills are called out", () => {
   });
   assert.ok(out.includes("의심 거래 2건"), out);
 });
+
+test("session-summary: fills with an unresolved entry price are flagged as unknown, not zero", () => {
+  const out = formatSessionSummary({
+    session, pnl: Object.assign({}, pnl, { unknownPnlCount: 2 }), health,
+  });
+  assert.ok(out.includes("실현손익 미상"), out);
+  assert.ok(out.includes("청산 2건은 진입가 미확인"), out);
+});

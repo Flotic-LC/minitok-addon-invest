@@ -54,6 +54,10 @@ function formatSessionSummary({ session, pnl, health }) {
   }
   if (open.length > 10) lines.push("  … " + (open.length - 10) + " more");
 
+  if (pnl.unknownPnlCount > 0) {
+    lines.push("");
+    lines.push("⚠️ 청산 " + pnl.unknownPnlCount + "건은 진입가 미확인(상태 미복원)으로 실현손익 미상 — 위 손익에 미반영");
+  }
   if (pnl.suspiciousCount > 0) {
     lines.push("");
     lines.push("⚠️ 의심 거래 " + pnl.suspiciousCount + "건 — 진입가 미기록으로 손익이 실제와 다를 수 있음");
