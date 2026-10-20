@@ -199,7 +199,10 @@ function createIntelligencePipeline(options = {}) {
     const [news, macro] = await Promise.all([fetchNews(symbol), fetchMacro()]);
     const sentiment = await fetchSentiment(symbol, news);
     const regime = classifyRegime(macro);
-    const summary = process.env.INTEL_SUMMARY_ENABLED === "true" ? await summarizeNews(news, callLLM) : null;
+    // Opt-out gate: summarisation runs whenever an LLM is supplied, but
+    // INTEL_SUMMARY_ENABLED=false disables it (it costs one extra LLM call per
+    // symbol per decision cycle).
+    const summary = (callLLM && process.env.INTEL_SUMMARY_ENABLED !== "false") ? await summarizeNews(news, callLLM) : null;
     return {
       symbol,
       news: news ? { count: news.length, summary, topHeadlines: news.slice(0, 3).map(a => a.title) } : null,

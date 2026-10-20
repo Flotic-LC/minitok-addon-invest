@@ -145,6 +145,12 @@ function createConfidenceCalibrator(options) {
   }
 
   function evaluateFromResponses(samples) {
+    // [FIX] Count the evaluation exactly once, here. `evaluate()` used to
+    // increment as well, so every sampled evaluation was counted twice and
+    // `stats().totalEvaluations` never matched the number of decisions.
+    // Counting here also covers direct `evaluateFromResponses()` calls (the
+    // runner scores every WS/REST decision through this entry point).
+    totalEvaluations++;
     if (!Array.isArray(samples) || samples.length === 0) {
       return {
         confidence: 0, actionAgreement: 0, numericStability: 0,
@@ -152,7 +158,6 @@ function createConfidenceCalibrator(options) {
         positionScale: 0, sampleCount: 0, samples: [],
       };
     }
-    totalEvaluations++;
 
     const actions = samples.map((s) => extractAction(s.parsed, cfg.actionField));
     const { agreement, modal } = computeActionAgreement(actions);
@@ -236,7 +241,6 @@ function createConfidenceCalibrator(options) {
     const evalResult = evaluateFromResponses(samples);
     const elapsedMs = now() - t0;
 
-    totalEvaluations++;
     lastConfidence = evalResult.confidence;
     if (evalResult.recommendation === "skip") skippedCount++;
     else if (evalResult.recommendation === "reduce") reducedCount++;

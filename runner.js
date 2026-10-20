@@ -1675,6 +1675,8 @@ const partialProfitTaken = new Map(); // symbol -> Set of triggered tiers
 const TRAILING_STOP_MIN_PROFIT_PCT = Number(process.env.TRAILING_STOP_MIN_PROFIT_PCT || 3); // Only trail after +3% profit
 // [Phase 3.3] ATR hard stop — always active from entry (not just after profit)
 const AUTO_EXCHANGE_MODE = process.env.AUTO_EXCHANGE_MODE || "alert";
+const EXCHANGE_ALERT_THROTTLE_MS = Number(process.env.EXCHANGE_ALERT_THROTTLE_MS || 1800000);
+let _lastExchangeAlertAt = 0;
 const ATR_HARD_STOP_MULT = Number(process.env.ATR_HARD_STOP_MULT || 2); // stop = entry - 2*ATR
 
 // --- [CASH-RESCUE] Held Position Sweep ---
@@ -1696,8 +1698,15 @@ async function heldPositionSweep() {
     // [Patch 2026-10-15] KRW-denominated shortage gate: USD holdings must NOT mask KRW=0.
     // Auto-exchange (USD->KRW) exists precisely for this state, so gate on cashKrw itself.
     var CASH_RESCUE_KRW_MIN = Number(process.env.CASH_RESCUE_KRW_MIN || 100000);
+    var CASH_RESCUE_USD_MIN = Number(process.env.CASH_RESCUE_USD_MIN || 50);
     var positions = portfolio.positions.slice().sort(function(a, b) { return (b.marketValue || 0) - (a.marketValue || 0); });
-    var cashRescueMode = cashKrw < CASH_RESCUE_KRW_MIN && (totalEquity > 1000000 || positions.length > 0);
+    // [FIX] Cash-rescue must target the currency that is actually short. Selling a
+    // USD position frees USD, which cannot fund a KRW-denominated KRX order — the
+    // previous behaviour liquidated profitable US holdings (QQQ/SPY) to chase a KRW
+    // shortage that USD could never resolve.
+    var rescueCurrency = cashKrw < CASH_RESCUE_KRW_MIN ? "KRW"
+      : (cashUsd < CASH_RESCUE_USD_MIN ? "USD" : null);
+    var cashRescueMode = !!rescueCurrency && (totalEquity > 1000000 || positions.length > 0);
     var reviewed = 0;
     var maxReviews = cashRescueMode ? HELD_SWEEP_MAX_PER_CYCLE * 2 : HELD_SWEEP_MAX_PER_CYCLE;
     for (var pos of positions) {
@@ -1721,16 +1730,19 @@ async function heldPositionSweep() {
         } catch (_pe) { /* best-effort */ }
       }
       if (!currentPrice || currentPrice <= 0) { console.log("[held-sweep] SKIP " + sym + " (no price)"); continue; }
+      // [FIX] Only a position whose currency matches the shortage can rescue it.
+      var posCurrency = String(pos.currency || "KRW").toUpperCase();
+      var posRescueMode = cashRescueMode && posCurrency === rescueCurrency;
       var marketData = {
         source: "held-sweep", market: (typeof detectMarket === "function" ? detectMarket(sym) : "US") || "US",
         symbol: sym, price: { symbol: sym, price: currentPrice, lastPrice: currentPrice },
-        _heldReview: true, _cashRescueMode: cashRescueMode,
+        _heldReview: true, _cashRescueMode: posRescueMode,
         _positionInfo: { quantity: pos.quantity, avgPrice: pos.avgPrice || 0, marketValue: pos.marketValue || 0,
           pnlPct: pos.profitLossPct != null ? pos.profitLossPct : (pos.avgPrice > 0 ? ((currentPrice - pos.avgPrice) / pos.avgPrice * 100) : 0) }
       };
       // [FIX F2.1] Skip non-rescue sweeps when the symbol's market is closed to avoid wasteful LLM calls.
       var _mkt = (typeof detectMarket === "function" ? detectMarket(sym) : "US");
-      if (!cashRescueMode && !getActiveMarkets().includes(_mkt)) {
+      if (!posRescueMode && !getActiveMarkets().includes(_mkt)) {
         console.log("[held-sweep] SKIP " + sym + " (market " + _mkt + " closed, not cash-rescue)");
         continue;
       }
@@ -1742,18 +1754,19 @@ async function heldPositionSweep() {
         decision.price = decision.price || currentPrice;
         decision._decisionSource = "held-sweep";
         console.log("[held-sweep] SELL " + sym + " qty=" + decision.quantity + " @ " + currentPrice + " reason=" + (decision.reason || ""));
-        journalEntry({ type: "HELD_SWEEP_SELL", symbol: sym, quantity: decision.quantity, price: currentPrice, pnlPct: marketData._positionInfo.pnlPct, cashRescue: cashRescueMode });
+        journalEntry({ type: "HELD_SWEEP_SELL", symbol: sym, quantity: decision.quantity, price: currentPrice, pnlPct: marketData._positionInfo.pnlPct, cashRescue: posRescueMode });
         try { sendTelegramAlert("[Sweep] SELL " + sym + " qty=" + decision.quantity + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%)"); } catch {}
         await executeDecision(decision);
       } else if (decision) {
-        console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%, rescue=" + cashRescueMode + ")");
+        console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%, rescue=" + posRescueMode + ")");
       }
     }
-    if (reviewed > 0) console.log("[held-sweep] Reviewed " + reviewed + "/" + positions.length + " positions, cashKrw=" + Math.round(cashKrw) + ", cashUsd=" + cashUsd.toFixed(2) + ", totalCashKrw=" + Math.round(totalCashKrw) + ", equityKrw=" + Math.round(totalEquity) + ", rescue=" + cashRescueMode + ", fxUSD=" + cachedFxRates.FX_USD_KRW);
+    if (reviewed > 0) console.log("[held-sweep] Reviewed " + reviewed + "/" + positions.length + " positions, cashKrw=" + Math.round(cashKrw) + ", cashUsd=" + cashUsd.toFixed(2) + ", totalCashKrw=" + Math.round(totalCashKrw) + ", equityKrw=" + Math.round(totalEquity) + ", rescue=" + cashRescueMode + ", rescueCurrency=" + (rescueCurrency || "none") + ", fxUSD=" + cachedFxRates.FX_USD_KRW);
 
     // [AUTO-EXCHANGE] If KRW cash is still critically low after sweep, check USD buying power
-    // and auto-convert USD → KRW to restore liquidity.
-    if (cashRescueMode) {
+    // and alert for a manual USD → KRW exchange (the Toss OpenAPI exposes no FX endpoint;
+    // see EXCHANGE_EXECUTION_NOTES.md — every other blocker on the WTS path is cleared).
+    if (rescueCurrency === "KRW") {
       try {
         var token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
         var usdBp = await getBuyingPower(token, TOSS_ACCOUNT_SEQ, "USD");
@@ -1761,13 +1774,21 @@ async function heldPositionSweep() {
         var fxRate = cachedFxRates.FX_USD_KRW || 1350;
         var usdCashKrw = usdCash * fxRate;
         console.log("[auto-exchange] USD cash=" + usdCash.toFixed(2) + " (≈" + Math.round(usdCashKrw) + " KRW), cashKrw=" + Math.round(cashKrw));
-        if (usdCash > 10 && cashKrw < 50000) {
-          var exchangeAmount = Math.min(usdCash, Math.ceil((100000 - cashKrw) / fxRate));
-          if (exchangeAmount < 1) exchangeAmount = Math.min(usdCash, 1);
-          // [FIX] Auto-exchange is not supported by Toss Invest API (404). Alert only.
-          console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested (manual exchange required, Toss API has no FX endpoint)");
-          sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD->KRW manual. Rate=" + fxRate + " KRW=" + Math.round(cashKrw) + "\nToss app에서 수동 환전 필요", "warn");
-          journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, fxRate: fxRate, reason: "no_api_support" });
+        // [FIX] Size the request against the KRW actually needed to open KR positions
+        // (ATR sizing targets ~5% of equity per position, single-position cap 15%).
+        // The previous flat 100,000 KRW floor understated the need by ~50x and asked
+        // for 76 USD, which could not fund a single position.
+        var krwTargetPct = Number(process.env.KR_CASH_TARGET_PCT || 20);
+        var krwTarget = Math.max(CASH_RESCUE_KRW_MIN, Math.round(totalEquity * krwTargetPct / 100));
+        var krwNeeded = Math.max(0, krwTarget - cashKrw);
+        var exchangeAmount = Math.min(usdCash, Math.ceil(krwNeeded / fxRate));
+        if (usdCash > 10 && exchangeAmount >= 1) {
+          if (!_lastExchangeAlertAt || (Date.now() - _lastExchangeAlertAt) > EXCHANGE_ALERT_THROTTLE_MS) {
+            _lastExchangeAlertAt = Date.now();
+            console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested (≈" + Math.round(exchangeAmount * fxRate) + " KRW, target " + krwTarget + " KRW; manual exchange required, Toss API has no FX endpoint)");
+            sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD → KRW 수동 환전 필요\n≈" + Math.round(exchangeAmount * fxRate) + " KRW (목표 " + krwTarget + " KRW)\n현재 KRW=" + Math.round(cashKrw) + ", USD=" + usdCash.toFixed(2) + ", rate=" + fxRate + "\nToss 앱에서 환전 → 이후 자동 매매 재개", "warn");
+            journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, suggestedKrw: Math.round(exchangeAmount * fxRate), krwTarget: krwTarget, fxRate: fxRate, reason: "no_api_support" });
+          }
         }
       } catch (exErr) {
         console.warn("[auto-exchange] Error: " + exErr.message);
@@ -1787,9 +1808,12 @@ async function heldPositionSweep() {
       if (usdCashNow < USD_MIN && krwCashNow > KRW_KEEP + 100000) {
         var exchangeKrw = Math.min(krwCashNow - KRW_KEEP, Math.ceil((200 - usdCashNow) * fx2));
         if (exchangeKrw >= 10000) {
-          console.log("[auto-exchange] ALERT: KRW->USD " + exchangeKrw + " suggested (manual exchange required)");
-          sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2 + "\nToss app에서 수동 환전 필요", "warn");
-          journalEntry({ type: "EXCHANGE_ALERT", from: "KRW", to: "USD", suggestedAmount: exchangeKrw, fxRate: fx2, reason: "no_api_support" });
+          if (!_lastExchangeAlertAt || (Date.now() - _lastExchangeAlertAt) > EXCHANGE_ALERT_THROTTLE_MS) {
+            _lastExchangeAlertAt = Date.now();
+            console.log("[auto-exchange] ALERT: KRW->USD " + exchangeKrw + " suggested (manual exchange required)");
+            sendTelegramAlert("[EXCHANGE] " + exchangeKrw + " KRW->USD manual. Rate=" + fx2 + "\nToss app에서 수동 환전 필요", "warn");
+            journalEntry({ type: "EXCHANGE_ALERT", from: "KRW", to: "USD", suggestedAmount: exchangeKrw, fxRate: fx2, reason: "no_api_support" });
+          }
         }
       }
     } catch (ex2) {
@@ -3631,19 +3655,24 @@ async function registerStopLoss(orderInfo) {
 // [IMPROVE #1] Position sizing enforcement based on goals.json risk_parameters
 const MAX_SINGLE_POSITION_PCT = (tradingGoals && tradingGoals.risk_parameters && tradingGoals.risk_parameters.max_single_position_pct) || 15;
 
+// Position market values arrive in the listing currency (USD for US holdings).
+// Every limit in this file is expressed in KRW, so convert before comparing.
+function marketValueKrw(pos) {
+  var mv = Number((pos && pos.marketValue) || 0);
+  if (!mv) return 0;
+  var cur = pos && pos.currency ? String(pos.currency).toUpperCase() : "KRW";
+  if (cur === "KRW") return mv;
+  var fxKey = "FX_" + cur + "_KRW";
+  var rate = (typeof globalThis !== "undefined" && globalThis[fxKey]) || cachedFxRates[fxKey] || 1;
+  return mv * rate;
+}
+
 function computeTotalEquityKrw(portfolio) {
   let total = Number(portfolio.cashKrw || 0)
     + Number(portfolio.cashUsd || 0) * (cachedFxRates.FX_USD_KRW || 1350)
     + Number(portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9);
   for (const p of (portfolio.positions || [])) {
-    var mv = p.marketValue || 0;
-    // Apply FX conversion if position currency is not KRW
-    if (p.currency && p.currency !== "KRW") {
-      var fxKey = "FX_" + p.currency + "_KRW";
-      var fxRate = (typeof globalThis !== "undefined" && globalThis[fxKey]) || cachedFxRates[fxKey] || 1;
-      mv = mv * fxRate;
-    }
-    total += mv;
+    total += marketValueKrw(p);
   }
   return total;
 }
@@ -3674,7 +3703,7 @@ function checkSectorExposure(newSymbol, orderValue, totalEquity, positions) {
       var posSym = String(pos.symbol).toUpperCase();
       var posSectors = symbolToSectors.get(posSym);
       if (posSectors && posSectors.has(sector)) {
-        sectorValue += (pos.marketValue || 0);
+        sectorValue += marketValueKrw(pos);
       }
     }
     var sectorPct = (sectorValue / totalEquity) * 100;
@@ -3685,16 +3714,19 @@ function checkSectorExposure(newSymbol, orderValue, totalEquity, positions) {
   return { ok: true };
 }
 
-async function enforcePositionSizing(input, strategy) {
+async function enforcePositionSizing(input, strategy, decision) {
   // [DUAL-PORTFOLIO] max_profit bucket skips mechanical sizing but enforces bucket budget
   if (strategy === "max_profit") {
     try {
       const portfolio = await fetchPortfolioContext();
       const totalEquity = computeTotalEquityKrw(portfolio);
       const budget = getBucketBudget(totalEquity, "max_profit");
-      const orderValue = input.price * input.quantity;
-      if (budget > 0 && orderValue > budget) {
-        const maxQty = Math.floor(budget / input.price);
+      // [FIX] The bucket budget is KRW; input.price is the listing currency.
+      const _mkt = detectMarket(input.symbol);
+      const _bfx = _mkt === "US" ? (cachedFxRates.FX_USD_KRW || 1) : _mkt === "JP" ? (cachedFxRates.FX_JPY_KRW || 1) : 1;
+      const orderValueKrw = input.price * input.quantity * _bfx;
+      if (budget > 0 && orderValueKrw > budget) {
+        const maxQty = Math.floor(budget / (input.price * _bfx));
         if (maxQty <= 0) return { ok: false, reason: "max_profit bucket budget exhausted (budget=" + Math.round(budget) + " KRW)" };
         console.log("[dual-portfolio] max_profit budget cap: " + input.quantity + " -> " + maxQty + " (budget " + Math.round(budget) + " KRW)");
         input.quantity = maxQty;
@@ -3774,31 +3806,41 @@ async function enforcePositionSizing(input, strategy) {
       }
     } catch (e) { /* best-effort: don't block on risk calc failure */ }
 
-    const orderValue = input.price * input.quantity;
-    const positionPct = (orderValue / totalEquity) * 100;
+    // [FIX] `input.price` is in the listing currency (USD for US symbols) while
+    // every limit below is denominated in KRW. Comparing them directly made the
+    // single-position cap ~fxRate times too loose and let the fee-aware minimum
+    // reject every US order whose USD value was below 50,000.
+    const orderValueKrw = input.price * input.quantity * fxRate;
+    const positionPct = (orderValueKrw / totalEquity) * 100;
     // [IMPROVE #5] Always apply regime-based position multiplier
     const regimeMult = getRegimePositionMultiplier();
     const effectiveMaxPct = MAX_SINGLE_POSITION_PCT * regimeMult;
     // [P1-3] Sector exposure check before single-position check
-    const sectorCheck = checkSectorExposure(input.symbol, orderValue, totalEquity, portfolio.positions || []);
+    const sectorCheck = checkSectorExposure(input.symbol, orderValueKrw, totalEquity, portfolio.positions || []);
     if (!sectorCheck.ok) {
       return { ok: false, reason: sectorCheck.reason };
     }
     if (positionPct > effectiveMaxPct) {
       // Reduce quantity to fit within effective limit
       const maxValue = totalEquity * (effectiveMaxPct / 100);
-      const maxQty = Math.floor(maxValue / input.price);
+      const maxQty = Math.floor(maxValue / (input.price * fxRate));
       if (maxQty <= 0) {
-        return { ok: false, reason: "Order value " + orderValue + " KRW exceeds effective " + effectiveMaxPct.toFixed(1) + "% of equity (" + Math.round(totalEquity) + " KRW). Min qty would be 0." };
+        return { ok: false, reason: "Order value " + Math.round(orderValueKrw) + " KRW exceeds effective " + effectiveMaxPct.toFixed(1) + "% of equity (" + Math.round(totalEquity) + " KRW). Min qty would be 0." };
       }
       console.log("[position-sizing] Reduced qty from " + input.quantity + " to " + maxQty + " (" + positionPct.toFixed(1) + "% > " + effectiveMaxPct.toFixed(1) + "% effective limit, regime=" + currentRegime + ")");
       input.quantity = maxQty;
-      return { ok: true, adjusted: true };
+      // [FIX] No early return here. Returning skipped the fee-aware and
+      // cash-sufficiency checks below, so a KRW order with an empty KRW pool
+      // still reached the broker and came back INSUFFICIENT_BALANCE.
     }
     // [Confidence sizing] Scale quantity by confidence calibrator's positionScale
     try {
       if (typeof confidenceCalibrator !== "undefined" && confidenceCalibrator && typeof confidenceCalibrator.evaluate === "function") {
-        const _confResult = confidenceCalibrator.evaluateFromResponses([{ parsed: {} }]);
+        // [FIX] `decision` was not a parameter of this function, so evaluating an
+        // empty sample produced confidence 0.1875 → positionScale 0 → every order
+        // was squeezed to 1 share and then rejected by the fee-aware check. The
+        // caller now passes the real decision.
+        const _confResult = confidenceCalibrator.evaluateFromResponses([{ parsed: decision || {} }]);
         if (_confResult && _confResult.positionScale != null && _confResult.positionScale < 1.0) {
           const _scaledQty = Math.max(1, Math.floor(input.quantity * _confResult.positionScale));
           if (_scaledQty < input.quantity) {
@@ -3811,33 +3853,40 @@ async function enforcePositionSizing(input, strategy) {
         }
       }
     } catch (e) { /* best-effort: don't block on confidence calc failure */ }
+    // [FIX] Re-derive the order value: the quantity may have been reduced above.
+    const _finalOrderValue = input.price * input.quantity * fxRate;
     // [Fee-aware entry] Block if order value too small for fees to be negligible
     const _minOrderValue = market === "US" ? 50000 : 10000; // KRW equivalent
-    if (orderValue < _minOrderValue) {
-      return { ok: false, reason: "fee-aware: order value " + Math.round(orderValue) + " KRW below minimum " + _minOrderValue + " KRW (fees would dominate)" };
+    if (_finalOrderValue < _minOrderValue) {
+      return { ok: false, reason: "fee-aware: order value " + Math.round(_finalOrderValue) + " KRW below minimum " + _minOrderValue + " KRW (fees would dominate)" };
     }
     // [Cash sufficiency] Block early if insufficient cash in the right currency pool
     const _cashPool = market === "US" ? (portfolio.cashUsd || 0) * fxRate
                      : market === "JP" ? (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9)
                      : (portfolio.cashKrw || 0);
-    const _totalCashKrw = (portfolio.cashKrw || 0) + (portfolio.cashUsd || 0) * fxRate + (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9);
-    if (_cashPool < orderValue) {
-      // Try USD fallback for KR trades (if USD cash can cover via FX)
-      const _usdFallback = (portfolio.cashUsd || 0) * fxRate;
-      if (market === "KR" && _usdFallback >= orderValue) {
-        console.log("[cash-sufficiency] KRW pool insufficient but USD fallback available (" + _usdFallback.toFixed(0) + " KRW eq)");
-      } else if (_totalCashKrw >= orderValue) {
+    // [FIX] Each currency pool converts at its own rate — the order's market rate
+    // (fxRate) is 1 for KRX orders, which understated total cash by ~1328x.
+    const _totalCashKrw = (portfolio.cashKrw || 0)
+      + (portfolio.cashUsd || 0) * (cachedFxRates.FX_USD_KRW || 1350)
+      + (portfolio.cashJpy || 0) * (cachedFxRates.FX_JPY_KRW || 9);
+    if (_cashPool < _finalOrderValue) {
+      // [FIX] Currency pools are not interchangeable: USD cash cannot fund a
+      // KRW-denominated KRX order — the broker rejects it with INSUFFICIENT_BALANCE.
+      // The previous USD fallback let every KR order pass local checks and then
+      // fail at the broker (~370 doomed orders/hour). A KRW shortage must be
+      // solved by selling a KRW position or by a manual USD→KRW exchange.
+      if (_totalCashKrw >= _finalOrderValue) {
         // Total cash sufficient but wrong currency pool — reduce order size to fit KRW pool
         const _reducedValue = _cashPool * 0.95;
-        const _reducedQty = Math.floor(_reducedValue / input.price);
+        const _reducedQty = Math.floor(_reducedValue / (input.price * fxRate));
         if (_reducedQty > 0 && _reducedQty < input.quantity) {
           console.log("[cash-sufficiency] " + market + " trade: KRW pool insufficient (" + Math.round(_cashPool) + "), reducing qty " + input.quantity + " -> " + _reducedQty + " (total cash " + Math.round(_totalCashKrw) + " KRW eq)");
           input.quantity = _reducedQty;
         } else if (_reducedQty <= 0) {
-          return { ok: false, reason: "insufficient KRW: pool " + Math.round(_cashPool) + " < order " + Math.round(orderValue) + " (total cash " + Math.round(_totalCashKrw) + " but wrong currency)" };
+          return { ok: false, reason: "insufficient KRW: pool " + Math.round(_cashPool) + " < order " + Math.round(_finalOrderValue) + " (total cash " + Math.round(_totalCashKrw) + " but wrong currency)" };
         }
       } else {
-        return { ok: false, reason: "insufficient balance: need " + Math.round(orderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) + " (total " + Math.round(_totalCashKrw) + ")" };
+        return { ok: false, reason: "insufficient balance: need " + Math.round(_finalOrderValue) + " " + (market === "US" ? "USD" : market === "JP" ? "JPY" : "KRW") + ", have " + Math.round(_cashPool) + " (total " + Math.round(_totalCashKrw) + ")" };
       }
     }
     return { ok: true };
@@ -4178,7 +4227,7 @@ async function _executeDecisionInner(decision, sym) {
   var orderStrategy = (decision.strategy === "max_profit") ? "max_profit" : "standard";
 
   // [IMPROVE #1] Position sizing enforcement (with bucket budget)
-  const sizingResult = await enforcePositionSizing(input, orderStrategy);
+  const sizingResult = await enforcePositionSizing(input, orderStrategy, decision);
   if (!sizingResult.ok) {
     console.log("[exec] Skipped (position sizing): " + sizingResult.reason);
     journalEntry({ type: "ORDER_BLOCKED", action: input.side, symbol: input.symbol, reason: sizingResult.reason });
