@@ -64,8 +64,12 @@ function checkConstitutionHardLimits(decision, ctx, limits) {
     orderValueKrw = (Number(decision.price) || 0) * (Number(decision.quantity) || 0);
   }
 
-  // Position size as % of equity
-  if (limits.maxSinglePositionPct != null && ctx.totalEquity > 0 && orderValueKrw > 0) {
+  // Position size as % of equity.
+  // [2026-10-20] This limit describes the position a BUY would OPEN, so it
+  // only gates entries. Applied to a SELL it blocked the very trade that
+  // brings an oversized position back under the limit — the bot was told to
+  // cut a 36%-of-equity holding and was then refused for selling 21% of it.
+  if (limits.maxSinglePositionPct != null && decision.action === "BUY" && ctx.totalEquity > 0 && orderValueKrw > 0) {
     var positionPct = (orderValueKrw / ctx.totalEquity) * 100;
     if (positionPct > limits.maxSinglePositionPct) {
       violations.push("CONSTITUTION: Position " + positionPct.toFixed(1) + "% exceeds hard limit " + limits.maxSinglePositionPct + "%");
