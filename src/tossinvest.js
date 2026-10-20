@@ -398,13 +398,25 @@ async function discoverSymbols(token, market, limit = 10) {
         const candles = Array.isArray(candleResp.body) ? candleResp.body : [candleResp.body];
         const latest = candles[candles.length - 1];
         const volume = Number(latest?.volume || latest?.accVolume || 0);
-        scored.push({ symbol: sym, market, volume });
+        const close = Number(latest?.closePrice || latest?.close || latest?.price || 0);
+        // [2026-10-21] Rank by DOLLAR volume, not share volume. Ranking by
+        // shares put micro-caps and sub-dollar ETFs at the top of a random
+        // sample - they trade a lot of shares but almost no dollars - and the
+        // scan then filled the watchlist with names the broker refuses to
+        // trade ("prerequisite-required") and whose spread is far too wide.
+        const dollarVolume = volume * close;
+        scored.push({ symbol: sym, market, volume, close, dollarVolume });
       }
     } catch { /* skip rate-limited or invalid symbols */ }
   }
-  // Sort by volume descending and return top N
-  scored.sort((a, b) => b.volume - a.volume);
-  return scored.slice(0, limit).map(s => s.symbol);
+  const minPrice = Number(process.env.DISCOVERY_MIN_PRICE_USD || 5);
+  const minDollarVolume = Number(process.env.DISCOVERY_MIN_DOLLAR_VOLUME || 5_000_000);
+  const eligible = scored.filter(function(s) {
+    if (s.close > 0 && s.close < minPrice) return false;
+    return s.dollarVolume >= minDollarVolume;
+  });
+  eligible.sort((a, b) => b.dollarVolume - a.dollarVolume);
+  return eligible.slice(0, limit).map(s => s.symbol);
 }
 
 async function getExchangeRate(token, baseCurrency, quoteCurrency, dateTime) {
