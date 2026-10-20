@@ -854,15 +854,12 @@ const MAX_CONSECUTIVE_AUTH_FAILURES = 10;
 const BASE_BACKOFF_MS = 5000;
 const MAX_BACKOFF_MS = 300000; // 5 minutes
 
-function isAuthError(msg) {
-  const lower = (msg || "").toLowerCase();
-  return lower.indexOf("invalid-token") !== -1 ||
-         lower.indexOf("invalid_token") !== -1 ||
-         lower.indexOf("token-revoked") !== -1 ||
-         lower.indexOf("token_revoked") !== -1 ||
-         lower.indexOf("toss_auth_error") !== -1 ||
-         lower.indexOf("unauthorized") !== -1;
-}
+// [FIX] Auth classification lives in src/core/auth-error.js so it can be unit
+// tested. The previous inline version only matched English markers, so Toss's
+// Korean reply ("유효하지 않은 토큰입니다.") was never treated as an auth error:
+// the token cache was never reset, the retry never ran, and the runner kept
+// using a token another process had already invalidated.
+const { isAuthError, isTokenRevoked } = require("./src/core/auth-error");
 
 // [Phase 1.3] DST-aware sessions via src/agent/marketCalendar; holidays
 // cross-checked against Toss market-calendar API (cached 6h).
@@ -2200,8 +2197,7 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
           continue;
         }
       } else {
-        const isTokenRevoked = msg.indexOf("token-revoked") !== -1 || msg.indexOf("token_revoked") !== -1 || (msg.indexOf("revoked") !== -1 && msg.indexOf("token") !== -1);
-        if (isTokenRevoked && attempt < maxAttempts) {
+        if (isTokenRevoked(msg) && attempt < maxAttempts) {
           console.warn("[portfolio] Token revoked detected (attempt " + attempt + "). Resetting token cache and retrying...");
           try { resetTokenCache(); } catch {}
           invalidatePortfolioCache();
