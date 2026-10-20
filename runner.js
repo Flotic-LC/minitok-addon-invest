@@ -1744,7 +1744,7 @@ async function heldPositionSweep() {
         console.log("[held-sweep] SELL " + sym + " qty=" + decision.quantity + " @ " + currentPrice + " reason=" + (decision.reason || ""));
         journalEntry({ type: "HELD_SWEEP_SELL", symbol: sym, quantity: decision.quantity, price: currentPrice, pnlPct: marketData._positionInfo.pnlPct, cashRescue: cashRescueMode });
         try { sendTelegramAlert("[Sweep] SELL " + sym + " qty=" + decision.quantity + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%)"); } catch {}
-        await executeDecision(_finalDecision);
+        await executeDecision(decision);
       } else if (decision) {
         console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%, rescue=" + cashRescueMode + ")");
       }
@@ -2355,6 +2355,9 @@ async function fetchCandleContext(token, symbol, interval) {
 
 async function askAI(marketData, opts) {
   const now = Date.now();
+  // [FIX] a6007c9 dropped this declaration while renaming the cache-lookup usages to
+  // _cacheSym, leaving ~30 downstream `sym` references unresolved.
+  const sym = marketData && (marketData.symbol || marketData.code);
   const throttleMs = getDynamicThrottleMs();
   var bypassThrottle = opts && opts.bypassThrottle;
   if (!bypassThrottle && now - lastAiCallAt < throttleMs) return null;
@@ -2534,7 +2537,7 @@ async function askAI(marketData, opts) {
     promptLines.push('- Schema: {"action":"BUY"|"SELL"|"HOLD","symbol":"string","quantity":number,"price":number,"reason":"string","strategy":"max_profit"|"standard"}.');
   } else {
     promptLines.push('- Schema: {"action":"BUY"|"SELL"|"HOLD","symbol":"string","quantity":number,"price":number,"reason":"string"}.');
-  s.push('- IMPORTANT: When multiple positive signals align (momentum+MACD+RSI), strongly prefer BUY over HOLD. Only HOLD if NO actionable signal exists.');
+    promptLines.push('- IMPORTANT: When multiple positive signals align (momentum+MACD+RSI), strongly prefer BUY over HOLD. Only HOLD if NO actionable signal exists.');
   }
   promptLines.push('- To add a new symbol to the watchlist, respond: {"action":"ADD_SYMBOL","symbol":"string","reason":"string"}.');
   promptLines.push('- If halted, respond {"action":"HOLD"}. NEVER respond HOLD when a positive signal exists. You MUST respond BUY or SELL. HOLD is forbidden unless halted or no data available.');
@@ -3795,7 +3798,7 @@ async function enforcePositionSizing(input, strategy) {
     // [Confidence sizing] Scale quantity by confidence calibrator's positionScale
     try {
       if (typeof confidenceCalibrator !== "undefined" && confidenceCalibrator && typeof confidenceCalibrator.evaluate === "function") {
-        const _confResult = confidenceCalibrator.evaluateFromResponses([{ parsed: decision || {} }]);
+        const _confResult = confidenceCalibrator.evaluateFromResponses([{ parsed: {} }]);
         if (_confResult && _confResult.positionScale != null && _confResult.positionScale < 1.0) {
           const _scaledQty = Math.max(1, Math.floor(input.quantity * _confResult.positionScale));
           if (_scaledQty < input.quantity) {
@@ -5020,7 +5023,7 @@ async function start() {
         // [Meta-cog] Record ALL decisions (including HOLD) for learning
         if (_finalDecision.action === "HOLD" && _finalDecision.symbol) {
           try {
-            var _mcHoldId = "mc-" + Date.now() + "-" + String(decision.symbol).toUpperCase();
+            var _mcHoldId = "mc-" + Date.now() + "-" + String(_finalDecision.symbol).toUpperCase();
             var _mcHoldCtx = { action: "HOLD", regime: currentRegime, intelligence: null, councilResult: null, walkForwardResult: null, similarExperiences: null, pastFailures: null };
             metaCognition.recordDecision(_mcHoldId, _mcHoldCtx);
           } catch (e) { /* best-effort */ }
@@ -5533,6 +5536,9 @@ async function start() {
         journalEntry({ type: "DRAWDOWN_MILESTONE", milestone: ms, ddPct: Number(dd.toFixed(2)) });
       } else if (dd < ms - 2 && _drawdownMilestonesNotified.has(key)) {
         _drawdownMilestonesNotified.delete(key);
+      }
+    }
+  }
 
   // 3. Phase Escalation
   function checkPhaseEscalation() {
@@ -5587,6 +5593,7 @@ async function start() {
     console.log("[monthly] " + msg.replace(/\n/g, " | "));
     sendTelegramAlert(msg);
     journalEntry({ type: "MONTHLY_PNL", month: ms, trades: mt.length, buys: buys, sells: sells });
+  }
 
   // 6. Position Concentration (>20% single symbol)
   async function checkPositionConcentration() {
@@ -5641,14 +5648,6 @@ async function start() {
       journalEntry({ type: "UNUSUAL_VOLUME", symbol: symbol, volume: volume, zscore: Number(z.toFixed(2)) });
     }
   }
-
-  }
-
-      }
-    }
-  }
-
-
 
   // 8. Tax-Loss Harvesting (Nov-Dec, once/year)
   async function checkTaxLossHarvesting() {
