@@ -434,55 +434,107 @@ function createTargetEngine(options = {}) {
 }
 
 function createEquitySnapshotter({ credentials, accountSeq, currency = "KRW", statePath, now } = {}) {
-  const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getExchangeRate } = require("../tossinvest");
+  const { fetchAccessToken, getHoldings, getBuyingPower, getExchangeRate } = require("../tossinvest");
   const engine = createTargetEngine({ statePath, now });
+
+  // [2026-10-20 P0] Resolve the FX rate once per currency.
+  // The old implementation called the exchange-rate endpoint once per holding
+  // and parsed only `body.rate`. A single failed call therefore removed that
+  // holding's market value from the sum, and the missing "result" envelope
+  // form parsed as 0 — both silently understating equity by millions of KRW.
+  async function _rateFor(token, cur) {
+    const fx = await getExchangeRate(token, cur, currency);
+    const body = (fx && fx.body) ? fx.body : {};
+    const raw = (body.result && body.result.rate != null) ? body.result.rate : body.rate;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) {
+      throw new Error("exchange rate unavailable for " + cur + "->" + currency);
+    }
+    return n;
+  }
 
   async function fetchEquity() {
     const { clientId, clientSecret } = credentials || {};
     if (!clientId || !clientSecret) throw new Error("credentials required for equity snapshot");
-    resetTokenCache();
+    // [2026-10-20 P0] Do NOT reset the token cache here.
+    // Toss revokes every previously issued token when a new one is issued, so
+    // forcing a refresh on each snapshot invalidated the token that every
+    // concurrent request was using. Those requests failed with "the token was
+    // replaced by a newly issued token" and the component they carried was
+    // dropped from the equity sum — the source of the phantom 13% intraday
+    // losses that latched the daily-loss kill-switch. The token manager
+    // already caches and refreshes on expiry.
     const token = await fetchAccessToken(clientId, clientSecret);
     // [Patch 2026-10-15 equity-fix] USD cash was EXCLUDED from KRW equity, causing
     // equity (13.6M) < totalCash (64.6M) distortion: hard-stop and phase gates ran
     // on a wrong base. Fetch USD buying power too and convert into base currency.
     const currencies = [currency, ...(currency === "KRW" ? ["USD"] : ["KRW"])];
+
+    // [2026-10-20 P0] A partial equity must never be returned.
+    // Every component is now mandatory: a failed buying-power call used to
+    // zero the cash leg, and a failed exchange-rate call used to drop a
+    // position. Each drop produced a plausible-looking but ~10M KRW lower
+    // equity, which the daily-loss kill-switch read as a real crash and turned
+    // into a 30-minute trading freeze. Fail loudly instead — the caller skips
+    // the sample and keeps the previous baseline.
     const [holdings, ...bpList] = await Promise.all([
       getHoldings(token, accountSeq),
-      ...currencies.map(function(c) { return getBuyingPower(token, accountSeq, c).catch(function() { return { body: null }; }); }),
+      ...currencies.map(function(c) { return getBuyingPower(token, accountSeq, c); }),
     ]);
+
     // [Patch 2026-10-15 equity-fix-2] Parse holdings items (was undefined -> ReferenceError,
     // positions silently dropped from equity).
     var _hbody = holdings && holdings.body ? holdings.body : holdings;
-    var items = [];
-    if (_hbody) {
-      items = Array.isArray(_hbody) ? _hbody
-        : (Array.isArray(_hbody.holdings) ? _hbody.holdings
-        : (Array.isArray(_hbody.items) ? _hbody.items : []));
+    if (!_hbody || typeof _hbody !== "object") {
+      throw new Error("holdings response unavailable");
     }
+    var items = Array.isArray(_hbody) ? _hbody
+      : (Array.isArray(_hbody.holdings) ? _hbody.holdings
+      : (Array.isArray(_hbody.items) ? _hbody.items : null));
+    if (items == null) throw new Error("holdings response shape not recognised");
+
     let total = 0;
     var _fxCache = {};
+    async function _cachedRate(cur) {
+      if (_fxCache[cur] == null) _fxCache[cur] = await _rateFor(token, cur);
+      return _fxCache[cur];
+    }
+
     for (var _i = 0; _i < currencies.length; _i++) {
       const _cur = currencies[_i];
-      const _bp = Number(bpList[_i] && bpList[_i].body ? bpList[_i].body.cashBuyingPower : 0) || 0;
+      const _resp = bpList[_i];
+      const _body = (_resp && _resp.body) ? _resp.body : null;
+      if (!_body || _body.cashBuyingPower == null) {
+        throw new Error("buying power unavailable for " + _cur);
+      }
+      const _bp = Number(_body.cashBuyingPower) || 0;
       if (_cur === currency) { total += _bp; continue; }
-      if (_bp <= 0) continue;
-      try {
-        if (!_fxCache[_cur]) {
-          const fx = await getExchangeRate(token, _cur, currency);
-          _fxCache[_cur] = Number(fx.body && fx.body.rate) || 0;
-        }
-        if (_fxCache[_cur] > 0) total += _bp * _fxCache[_cur];
-      } catch { /* skip unconvertible cash */ }
+      if (_bp === 0) continue;
+      total += _bp * await _cachedRate(_cur);
     }
+
     for (const it of items) {
-      const cur = it.currency || "KRW";
-      const mv = Number(it.marketValue?.amount ?? it.marketValue) || 0;
+      const _sym = String(it.symbol || it.code || "");
+      const _mvRaw = it.marketValue;
+      var mv;
+      if (_mvRaw && typeof _mvRaw === "object") {
+        if (_mvRaw.amount == null) throw new Error("holding market value has no amount: " + _sym);
+        mv = Number(_mvRaw.amount) || 0;
+      } else {
+        mv = Number(_mvRaw) || 0;
+      }
+      // [2026-10-20] A holding without a usable quantity cannot be valued.
+      // Skipping it would drop its market value from the sum, so fail instead.
+      const _qty = (it.quantity == null) ? null : Number(it.quantity);
+      if (_qty == null) {
+        if (mv > 0) throw new Error("holding without quantity: " + _sym);
+        continue;
+      }
+      if (_qty <= 0) continue;
+      const cur = String(it.currency || "KRW").toUpperCase();
       if (cur === currency) { total += mv; continue; }
-      try {
-        const fx = await getExchangeRate(token, cur, currency);
-        const rate = Number(fx.body?.rate) || 0;
-        total += mv * rate;
-      } catch { /* skip unconvertible */ }
+      if (mv === 0) continue;
+      total += mv * await _cachedRate(cur);
     }
     return total;
   }

@@ -53,9 +53,20 @@ function checkConstitutionHardLimits(decision, ctx, limits) {
   var violations = [];
   if (!limits || !decision || decision.action === "HOLD") return violations;
 
+  // [2026-10-20] The decision price is in the LISTING currency (USD for US
+  // symbols) while every hard limit here is denominated in KRW. The runner
+  // supplies the converted value in ctx.orderValueKrw; without it the checks
+  // compared dollars against KRW limits and never fired for US orders.
+  var orderValueKrw = 0;
+  if (ctx && ctx.orderValueKrw != null && Number(ctx.orderValueKrw) > 0) {
+    orderValueKrw = Number(ctx.orderValueKrw);
+  } else if (decision.price && decision.quantity) {
+    orderValueKrw = (Number(decision.price) || 0) * (Number(decision.quantity) || 0);
+  }
+
   // Position size as % of equity
-  if (limits.maxSinglePositionPct != null && ctx.totalEquity > 0 && decision.price && decision.quantity) {
-    var positionPct = (decision.price * decision.quantity / ctx.totalEquity) * 100;
+  if (limits.maxSinglePositionPct != null && ctx.totalEquity > 0 && orderValueKrw > 0) {
+    var positionPct = (orderValueKrw / ctx.totalEquity) * 100;
     if (positionPct > limits.maxSinglePositionPct) {
       violations.push("CONSTITUTION: Position " + positionPct.toFixed(1) + "% exceeds hard limit " + limits.maxSinglePositionPct + "%");
     }
@@ -64,8 +75,14 @@ function checkConstitutionHardLimits(decision, ctx, limits) {
   // Total exposure check (would-be exposure after this trade)
   if (limits.maxTotalExposurePct != null && ctx.currentExposurePct != null) {
     var projectedExposure = ctx.currentExposurePct;
-    if (decision.action === "BUY" && ctx.totalEquity > 0 && decision.price && decision.quantity) {
-      projectedExposure += (decision.price * decision.quantity / ctx.totalEquity) * 100;
+    if (ctx.totalEquity > 0 && orderValueKrw > 0) {
+      var orderPct = (orderValueKrw / ctx.totalEquity) * 100;
+      // [2026-10-20] A BUY adds to the exposure, a SELL removes from it.
+      // Treating a SELL as exposure-neutral made this check reject the very
+      // trades that bring an over-exposed portfolio back under the limit, so
+      // the bot could not sell its way out of the breach.
+      if (decision.action === "BUY") projectedExposure += orderPct;
+      else if (decision.action === "SELL") projectedExposure = Math.max(0, projectedExposure - orderPct);
     }
     if (projectedExposure > limits.maxTotalExposurePct) {
       violations.push("CONSTITUTION: Projected exposure " + projectedExposure.toFixed(1) + "% exceeds hard limit " + limits.maxTotalExposurePct + "%");
@@ -87,10 +104,9 @@ function checkConstitutionHardLimits(decision, ctx, limits) {
   }
 
   // Absolute KRW cap per order
-  if (limits.maxSingleOrderKrw != null && decision.price && decision.quantity) {
-    var orderValue = decision.price * decision.quantity;
-    if (orderValue > limits.maxSingleOrderKrw) {
-      violations.push("CONSTITUTION: Order value " + orderValue + " KRW exceeds hard limit " + limits.maxSingleOrderKrw + " KRW");
+  if (limits.maxSingleOrderKrw != null && orderValueKrw > 0) {
+    if (orderValueKrw > limits.maxSingleOrderKrw) {
+      violations.push("CONSTITUTION: Order value " + orderValueKrw + " KRW exceeds hard limit " + limits.maxSingleOrderKrw + " KRW");
     }
   }
 

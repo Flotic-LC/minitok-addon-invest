@@ -227,6 +227,13 @@ const killswitch = createKillswitch(Object.assign({}, constitutionKillswitchConf
     sendTelegramAlert("✅ *Killswitch Recovery*\nTrading resumed after human approval.");
   },
 }));
+// [2026-10-20 P0] The daily-loss kill-switch latches for 30 minutes on a single
+// instantaneous reading. A one-off measurement artifact therefore froze all
+// trading for half an hour (7 latches and 14,268 blocked orders on 2026-10-20).
+// Require the breach to persist across consecutive evaluations before it is
+// allowed to halt. A real loss stays above the limit on the next tick.
+const KILLSWITCH_DAILY_LOSS_CONFIRMATIONS = Number(process.env.KILLSWITCH_DAILY_LOSS_CONFIRMATIONS || 2);
+let _ksDailyLossStreak = 0;
 const approvalGate = createApprovalGate({
   config: constitutionApprovalGateConfig || undefined,
   notify: function(msg) {
@@ -1127,16 +1134,22 @@ function _hmmMaybeRetrain() {
     if (result.ok) {
       console.log("[phase-g] Regime HMM trained: iter=" + result.iterations + " obs=" + result.observations + " ll=" + (result.logLik || 0).toFixed(2));
       // Update orchestrator with current regime label if available
-      const current = regimeHMM.filter(_hmmReturnsBuffer.length > 0
-        ? [_hmmReturnsBuffer[_hmmReturnsBuffer.length - 1], Math.abs(_hmmReturnsBuffer[_hmmReturnsBuffer.length - 1]), _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1]]
-        : null);
+      // [2026-10-20] The observation vector must never be null: filterOnline
+      // would throw on it, and because the timestamp was only advanced after
+      // this call, the retrain loop re-ran (and re-failed) every 10 seconds.
+      const _last = _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1];
+      const _obs = Number.isFinite(_last) ? [_last, Math.abs(_last), _last] : [];
+      const current = _obs.length ? regimeHMM.filter(_obs) : null;
       if (current && current.label && current.label !== "unknown") {
-        console.log("[phase-g] Current regime (HMM): " + current.label + " (p=" + current.prob + ", mult=" + regimeHMM.getPositionMultiplier().toFixed(2) + "x)");
+        console.log("[phase-g] Current regime (HMM): " + current.label + " (p=" + current.prob + ", mult=" + regimeHMM.getPositionMultiplier(_obs).toFixed(2) + "x)");
       }
     }
-    _hmmLastTrainTs = now;
   } catch (e) {
     console.error("[phase-g] HMM retrain error: " + e.message);
+  } finally {
+    // [2026-10-20] Advance the timestamp even when the post-train step threw,
+    // so a failure cannot turn into a 10-second retrain loop.
+    _hmmLastTrainTs = now;
   }
 }
 
@@ -2145,22 +2158,34 @@ async function _doFetchPortfolio(retryOnTokenRevoked) {
       ]);
       const holdings = Array.isArray(holdingsResp.body) ? holdingsResp.body : (holdingsResp.body?.items || []);
       const positions = holdings.map(function(h) {
-        return {
+        const _sym = String(h.symbol || h.code || "").toUpperCase();
+        const _cur = String(h.currency || "KRW").toUpperCase();
+        const _pos = {
           symbol: h.symbol || h.code || "",
           name: h.name || "",
           quantity: Number(h.quantity || 0),
-          avgPrice: Number(h.averagePrice || h.avgPrice || 0),
+          // [2026-10-20] The holdings API returns `averagePurchasePrice`.
+          // Reading only averagePrice/avgPrice always yielded 0, which broke
+          // entry-price resolution for SELL P&L (the "pnlUnknown" symptom).
+          avgPrice: Number(h.averagePrice || h.avgPrice || h.averagePurchasePrice || 0),
           currentPrice: Number(h.currentPrice || h.lastPrice || h.price || 0),
           lastPrice: Number(h.lastPrice || h.currentPrice || h.price || 0),
           marketValue: Number((h.marketValue?.amount ?? h.marketValue) || 0),
-          currency: h.currency || "KRW",
+          currency: _cur,
           profitLoss: Number((h.profitLoss?.amount ?? h.profitLoss) || 0),
           profitLossRate: Number(h.profitLoss?.rate || 0),
           profitLossPct: Number(h.profitLoss?.rate || 0) * 100,
           // [FIX] legacy = position the bot never bought (pre-existing holding).
           // Bot-initiated positions have an entry in entryPrices (restored from state).
-          legacy: !entryPrices.has(String(h.symbol || h.code || "").toUpperCase()),
+          legacy: !entryPrices.has(_sym),
         };
+        // [2026-10-20] Attach the FX rate and the KRW valuation so every
+        // consumer of portfolio.positions sums the same numbers the equity
+        // calculation uses. Without these the exposure layer fell back to
+        // `qty * price * 1` and reported "invested" above 100% of equity.
+        _pos.fxRate = fxRateToKrw(_cur);
+        _pos.valueKrw = marketValueKrw(_pos);
+        return _pos;
       }).filter(function(p) { return p.quantity > 0; });
       const openOrders = Array.isArray(ordersResp.body?.orders) ? ordersResp.body.orders : (Array.isArray(ordersResp.body) ? ordersResp.body : []);
       // [FIX F10.2] Apply result only if no invalidation happened during fetch
@@ -2927,7 +2952,9 @@ async function askAI(marketData, opts) {
     try {
       var _expoPct = 0;
       if (totalEquity > 0 && portfolio.positions && portfolio.positions.length > 0) {
-        var _invested = portfolio.positions.reduce(function(s, p) { return s + (p.marketValue || 0); }, 0);
+        // [2026-10-20 P0] marketValue is in the listing currency; valueKrw is
+        // the KRW valuation, which is the unit totalEquity is expressed in.
+        var _invested = portfolio.positions.reduce(function(s, p) { return s + (Number(p.valueKrw) || marketValueKrw(p)); }, 0);
         _expoPct = (_invested / totalEquity) * 100;
       }
       result._councilCtx = {
@@ -2953,6 +2980,13 @@ async function askAI(marketData, opts) {
         totalEquity: totalEquity,
         currentExposurePct: _expoPct,
         openPositions: portfolio.positions ? portfolio.positions.length : 0,
+        // [2026-10-20] The council's hard limits are denominated in KRW while
+        // the decision price is in the listing currency (USD for US symbols).
+        // Without the converted order value the council compared dollars with
+        // KRW limits and mis-measured every US order.
+        orderValueKrw: (result.price && result.quantity)
+          ? Math.round(Number(result.price) * Number(result.quantity) * fxRateToKrw(marketCurrency(sym)))
+          : 0,
       };
       // [Phase I / L4.5] Attach meta-cognition inputs to decision for downstream scoring
       result._metaCogIntel = intelligenceCtx || null;
@@ -3658,6 +3692,28 @@ async function registerStopLoss(orderInfo) {
 // [IMPROVE #1] Position sizing enforcement based on goals.json risk_parameters
 const MAX_SINGLE_POSITION_PCT = (tradingGoals && tradingGoals.risk_parameters && tradingGoals.risk_parameters.max_single_position_pct) || 15;
 
+// [2026-10-20] Map a symbol to its listing currency.
+function marketCurrency(symbol) {
+  var m = (typeof detectMarket === "function") ? detectMarket(symbol) : "US";
+  return m === "KR" ? "KRW" : (m === "JP" ? "JPY" : "USD");
+}
+
+// [2026-10-20] Single source of truth for "foreign currency -> KRW".
+// The previous inline lookup fell back to 1, which silently priced a USD
+// position at 1 KRW per USD and could understate equity by ~1330x.
+function fxRateToKrw(currency) {
+  var cur = String(currency || "KRW").toUpperCase();
+  if (cur === "KRW") return 1;
+  var fxKey = "FX_" + cur + "_KRW";
+  var rate = (typeof globalThis !== "undefined" && globalThis[fxKey]) || cachedFxRates[fxKey];
+  var n = Number(rate);
+  if (Number.isFinite(n) && n > 0) return n;
+  // Unknown currency: use the documented defaults instead of 1.
+  if (cur === "USD") return 1350;
+  if (cur === "JPY") return 9;
+  return 1;
+}
+
 // Position market values arrive in the listing currency (USD for US holdings).
 // Every limit in this file is expressed in KRW, so convert before comparing.
 function marketValueKrw(pos) {
@@ -3665,9 +3721,7 @@ function marketValueKrw(pos) {
   if (!mv) return 0;
   var cur = pos && pos.currency ? String(pos.currency).toUpperCase() : "KRW";
   if (cur === "KRW") return mv;
-  var fxKey = "FX_" + cur + "_KRW";
-  var rate = (typeof globalThis !== "undefined" && globalThis[fxKey]) || cachedFxRates[fxKey] || 1;
-  return mv * rate;
+  return mv * fxRateToKrw(cur);
 }
 
 function computeTotalEquityKrw(portfolio) {
@@ -3773,6 +3827,27 @@ async function enforcePositionSizing(input, strategy, decision) {
       input.atr = atr; // pass to orderInfo for hard stop registration
     }
 
+    // [2026-10-20] Apply the single-position cap BEFORE the exposure check.
+    // The ATR sizer sizes the position from its risk budget, which for a
+    // low-volatility large cap can be worth ~1x equity. The exposure check
+    // then rejected the order outright instead of letting the cap reduce it
+    // to a compliant size, so every US order died on the exposure gate.
+    const orderValueKrw = input.price * input.quantity * fxRate;
+    let positionPct = (orderValueKrw / totalEquity) * 100;
+    // [IMPROVE #5] Always apply regime-based position multiplier
+    const regimeMult = getRegimePositionMultiplier();
+    const effectiveMaxPct = MAX_SINGLE_POSITION_PCT * regimeMult;
+    if (positionPct > effectiveMaxPct) {
+      // Reduce quantity to fit within effective limit
+      const maxValue = totalEquity * (effectiveMaxPct / 100);
+      const maxQty = Math.floor(maxValue / (input.price * fxRate));
+      if (maxQty <= 0) {
+        return { ok: false, reason: "Order value " + Math.round(orderValueKrw) + " KRW exceeds effective " + effectiveMaxPct.toFixed(1) + "% of equity (" + Math.round(totalEquity) + " KRW). Min qty would be 0." };
+      }
+      console.log("[position-sizing] Reduced qty from " + input.quantity + " to " + maxQty + " (" + positionPct.toFixed(1) + "% > " + effectiveMaxPct.toFixed(1) + "% effective limit, regime=" + currentRegime + ")");
+      input.quantity = maxQty;
+    }
+
     // [Phase 3.2] Exposure / concentration check
     // Build flat symbol->sector map from goals (if available) to unify with exposure layer
     var _sectorMap = {};
@@ -3784,7 +3859,7 @@ async function enforcePositionSizing(input, strategy, decision) {
       }
     }
     const expo = exposure.checkExposure({
-      symbol: input.symbol, orderValueKrw: sizing.valueKrw, equity: totalEquity,
+      symbol: input.symbol, orderValueKrw: input.price * input.quantity * fxRate, equity: totalEquity,
       positions: portfolio.positions || [],
       strategy: candleCtx && candleCtx.strategyHint ? candleCtx.strategyHint : null,
     }, { sectorMap: Object.keys(_sectorMap).length ? _sectorMap : undefined });
@@ -3800,7 +3875,9 @@ async function enforcePositionSizing(input, strategy, decision) {
       if (_rbPositions.length > 0) {
         const _rbVols = _rbPositions.map(function() { return 0.02; }); // default 2% daily vol
         const _rbCov = portfolioRisk.buildDiagonalCov(_rbVols);
-        const _rbProposed = { symbol: input.symbol, qty: input.quantity, currentPrice: input.price };
+        // [2026-10-20 P0] The proposed position must carry the FX rate too —
+        // the portfolio is valued in KRW and the budget is a KRW amount.
+        const _rbProposed = { symbol: input.symbol, qty: input.quantity, currentPrice: input.price, fxRate: fxRate };
         const _rbResult = portfolioRisk.checkRiskBudget(_rbPositions, _rbCov, _rbProposed, totalEquity);
         if (!_rbResult.ok) {
           console.log("[risk-budget] BLOCKED " + input.symbol + ": " + _rbResult.breach);
@@ -3813,28 +3890,13 @@ async function enforcePositionSizing(input, strategy, decision) {
     // every limit below is denominated in KRW. Comparing them directly made the
     // single-position cap ~fxRate times too loose and let the fee-aware minimum
     // reject every US order whose USD value was below 50,000.
-    const orderValueKrw = input.price * input.quantity * fxRate;
-    const positionPct = (orderValueKrw / totalEquity) * 100;
-    // [IMPROVE #5] Always apply regime-based position multiplier
-    const regimeMult = getRegimePositionMultiplier();
-    const effectiveMaxPct = MAX_SINGLE_POSITION_PCT * regimeMult;
-    // [P1-3] Sector exposure check before single-position check
-    const sectorCheck = checkSectorExposure(input.symbol, orderValueKrw, totalEquity, portfolio.positions || []);
+    // [2026-10-20] The single-position cap now runs before the exposure check
+    // (see above) so the order is reduced to a compliant size instead of being
+    // rejected outright. Only the sector check is left here, and it uses the
+    // already-capped quantity.
+    const sectorCheck = checkSectorExposure(input.symbol, input.price * input.quantity * fxRate, totalEquity, portfolio.positions || []);
     if (!sectorCheck.ok) {
       return { ok: false, reason: sectorCheck.reason };
-    }
-    if (positionPct > effectiveMaxPct) {
-      // Reduce quantity to fit within effective limit
-      const maxValue = totalEquity * (effectiveMaxPct / 100);
-      const maxQty = Math.floor(maxValue / (input.price * fxRate));
-      if (maxQty <= 0) {
-        return { ok: false, reason: "Order value " + Math.round(orderValueKrw) + " KRW exceeds effective " + effectiveMaxPct.toFixed(1) + "% of equity (" + Math.round(totalEquity) + " KRW). Min qty would be 0." };
-      }
-      console.log("[position-sizing] Reduced qty from " + input.quantity + " to " + maxQty + " (" + positionPct.toFixed(1) + "% > " + effectiveMaxPct.toFixed(1) + "% effective limit, regime=" + currentRegime + ")");
-      input.quantity = maxQty;
-      // [FIX] No early return here. Returning skipped the fee-aware and
-      // cash-sufficiency checks below, so a KRW order with an empty KRW pool
-      // still reached the broker and came back INSUFFICIENT_BALANCE.
     }
     // [Confidence sizing] Scale quantity by confidence calibrator's positionScale
     try {
@@ -4515,15 +4577,40 @@ async function start() {
         try {
           var _ksPortfolio = await fetchPortfolioContext();
           var _ksEquity = computeTotalEquityKrw(_ksPortfolio);
-          var _ksInvested = (_ksPortfolio.positions || []).reduce(function(s, p) { return s + (p.marketValue || 0); }, 0);
+          // [2026-10-20 P0] marketValue is in the LISTING currency (USD for US
+          // holdings) while equity is KRW, so summing it directly understated
+          // the exposure by ~1330x. Use the KRW valuation the position now
+          // carries so the exposure limit is measured in the same unit.
+          var _ksInvested = (_ksPortfolio.positions || []).reduce(function(s, p) { return s + (Number(p.valueKrw) || marketValueKrw(p)); }, 0);
           _ksMetrics.totalExposurePct = _ksEquity > 0 ? (_ksInvested / _ksEquity) * 100 : 0;
           // Daily loss % from target engine baseline vs current equity
+          // [2026-10-20 P0] A single instantaneous reading must not latch the
+          // kill-switch. The breach has to persist across consecutive
+          // evaluations before it is allowed to halt trading; a real loss
+          // stays above the limit on the next tick.
           try {
             var _ksProj = targetEngine.project();
             var _ksBaseline = _ksProj && _ksProj.dailyBaselineEquity;
             if (_ksBaseline && _ksBaseline > 0 && _ksEquity > 0) {
               var _ksDailyRet = ((_ksEquity - _ksBaseline) / _ksBaseline) * 100;
-              _ksMetrics.dailyLossPct = _ksDailyRet < 0 ? Math.abs(_ksDailyRet) : 0;
+              var _ksLossPct = _ksDailyRet < 0 ? Math.abs(_ksDailyRet) : 0;
+              var _ksLimit = Number((constitutionKillswitchConfig && constitutionKillswitchConfig.dailyMaxLossPct) || 3);
+              if (_ksLossPct >= _ksLimit) {
+                _ksDailyLossStreak++;
+                if (_ksDailyLossStreak >= KILLSWITCH_DAILY_LOSS_CONFIRMATIONS) {
+                  _ksMetrics.dailyLossPct = _ksLossPct;
+                } else {
+                  console.warn("[killswitch] daily loss " + _ksLossPct.toFixed(2) + "% >= " + _ksLimit +
+                    "% — confirmation " + _ksDailyLossStreak + "/" + KILLSWITCH_DAILY_LOSS_CONFIRMATIONS +
+                    ", not halting yet");
+                }
+              } else {
+                if (_ksDailyLossStreak > 0) {
+                  console.log("[killswitch] daily loss back to " + _ksLossPct.toFixed(2) + "% — streak reset");
+                }
+                _ksDailyLossStreak = 0;
+                _ksMetrics.dailyLossPct = 0;
+              }
             }
           } catch (_e) { /* ignore */ }
         } catch {}
@@ -4576,7 +4663,9 @@ async function start() {
           }
           // Large-position gate (>15% equity)
           if (decision._councilCtx && decision._councilCtx.totalEquity > 0 && decision.price && decision.quantity) {
-            var _lpOrderVal = decision.price * decision.quantity;
+            // [2026-10-20] Use the KRW-converted order value; the decision
+            // price is in the listing currency (USD for US symbols).
+            var _lpOrderVal = decision._councilCtx.orderValueKrw || (decision.price * decision.quantity);
             var _lpPct = (_lpOrderVal / decision._councilCtx.totalEquity) * 100;
             if (_lpPct > 15) {
               var _lpId = approvalGate.request("large_position", { symbol: _sym, pct: Number(_lpPct.toFixed(2)), valueKrw: _lpOrderVal });
@@ -4610,7 +4699,9 @@ async function start() {
         }
         // Council approved — run scenario simulation for large positions
         if (decision.action === "BUY" && decision._councilCtx.totalEquity > 0 && decision.price && decision.quantity) {
-          var _orderVal = decision.price * decision.quantity;
+          // [2026-10-20] Use the KRW-converted order value; the decision
+          // price is in the listing currency (USD for US symbols).
+          var _orderVal = decision._councilCtx.orderValueKrw || (decision.price * decision.quantity);
           var _posPct = (_orderVal / decision._councilCtx.totalEquity) * 100;
           if (_posPct >= COUNCIL_SIM_THRESHOLD_PCT) {
             try {

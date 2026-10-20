@@ -60,9 +60,22 @@ function checkExposure(input, opts = {}) {
   for (const pos of (input.positions || [])) {
     const qty = Number(pos.qty || pos.quantity || 0);
     if (qty <= 0) continue;
-    const price = Number(pos.currentPrice || pos.avgPrice || 0);
-    const fx = Number(pos.fxRate || 1);
-    const value = qty * price * fx;
+    // [2026-10-20 P0] Prefer the caller's KRW valuation.
+    // The previous formula was `qty * price * (pos.fxRate || 1)`. The runner's
+    // portfolio positions carry no `fxRate` field, so a USD position's dollar
+    // value was added as if it were KRW — understating `invested` by ~1330x.
+    // `orderKrw` was real KRW, so the two sides were in different units and
+    // the check reported "invested 99.4% ~ 134.7% of equity" (>100% is
+    // impossible), which blocked nearly every order.
+    const valueKrw = Number(pos.valueKrw || 0);
+    let value;
+    if (valueKrw > 0) {
+      value = valueKrw;
+    } else {
+      const price = Number(pos.currentPrice || pos.avgPrice || 0);
+      const fx = Number(pos.fxRate != null ? pos.fxRate : 1);
+      value = qty * price * fx;
+    }
     investedKrw += value;
     const sym = String(pos.symbol).toUpperCase();
     bySymbol.set(sym, (bySymbol.get(sym) || 0) + value);
