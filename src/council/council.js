@@ -27,6 +27,10 @@ const DEFAULTS = Object.freeze({
   defaultOnDisagreement: "HOLD",
   maxPositionPct: 20.0,
   maxDailyTrades: 50,
+  // [2026-10-21] The open-position cap is its own limit. The risk manager used
+  // to compare ctx.openPositions against maxDailyTrades (50), so the
+  // constitution's max_open_positions: 15 was never enforced by the vote.
+  maxOpenPositions: Number(process.env.COUNCIL_MAX_OPEN_POSITIONS || 15),
   maxExposurePct: 85.0,
   minCashReservePct: 15.0,
   vixCrisisThreshold: 40,
@@ -223,8 +227,12 @@ function createCouncil(options = {}) {
       }
     }
 
-    if (ctx.openPositions != null && ctx.openPositions >= cfg.maxDailyTrades) {
-      issues.push("Max positions reached");
+    // [2026-10-21] The open-position cap, not the daily-trade cap.
+    const _maxOpenPositions = (cfg.constitutionHardLimits && cfg.constitutionHardLimits.maxOpenPositions != null)
+      ? cfg.constitutionHardLimits.maxOpenPositions
+      : cfg.maxOpenPositions;
+    if (_maxOpenPositions != null && ctx.openPositions != null && ctx.openPositions >= _maxOpenPositions) {
+      issues.push("Max positions reached (" + ctx.openPositions + "/" + _maxOpenPositions + ")");
       score -= 0.5;
     }
 

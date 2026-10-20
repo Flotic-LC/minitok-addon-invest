@@ -4,15 +4,19 @@
  * Realized / unrealized P&L calculator with commission, tax, and FX support.
  *
  * Toss Securities fee defaults (overridable via options or env):
- * - KR stock: commission 0.015% each side, sell transaction tax 0.15%
  * - US stock: commission 0.25% each side, SEC fee 0.00278% on sells
  * - JP stock: commission 0.05% each side, no local tax (withholding at source)
+ *
+ * The Korean market was removed on 2026-10-21: there is no KR fee schedule
+ * because KRX is no longer traded. `detectMarket` still classifies a
+ * 6-digit symbol as "KR" on purpose — that classification is what lets the
+ * execution path recognise and refuse a Korean symbol. Dropping it would
+ * make such a symbol fall through to "US" and become tradable.
  *
  * Currency conversion uses a caller-supplied FX rate (foreign -> KRW).
  */
 
 const DEFAULT_FEES = Object.freeze({
-  KR: { buyCommissionPct: 0.015, sellCommissionPct: 0.015, sellTaxPct: 0.15 },
   US: { buyCommissionPct: 0.25, sellCommissionPct: 0.25, sellTaxPct: 0.00278 },
   JP: { buyCommissionPct: 0.05, sellCommissionPct: 0.05, sellTaxPct: 0 },
 });
@@ -25,7 +29,7 @@ function detectMarket(symbol) {
 }
 
 function resolveFees(market, overrides = {}) {
-  const base = DEFAULT_FEES[market] || DEFAULT_FEES.KR;
+  const base = DEFAULT_FEES[market] || DEFAULT_FEES.US;
   const env = process.env;
   return {
     buyCommissionPct: Number(overrides.buyCommissionPct ?? env.PNL_BUY_COMMISSION_PCT ?? base.buyCommissionPct),

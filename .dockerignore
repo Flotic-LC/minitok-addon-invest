@@ -1,0 +1,35 @@
+# State files (persisted via Docker volume, not image)
+.runner-state.json
+state/.runner-state.json
+state/.target-state.json
+
+# Logs
+logs/
+*.log
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+backtest-result.json
+trade-journal.json
+.metrics.json
+.knowledge.json
+.intelligence-state.json
+
+# Test
+test/
+coverage/
+.nyc_output/

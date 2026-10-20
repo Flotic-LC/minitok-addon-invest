@@ -86,7 +86,6 @@ const SCHEMA = Object.freeze({
   // --- [Tier 2] Fallback policy (when all AI providers fail) ---
   FALLBACK_ALLOWLIST:    { type: "string" },
   FALLBACK_BLOCKLIST:    { type: "string" },
-  FALLBACK_MIN_PRICE_KRW:{ type: "number", min: 0, default: 1000 },
   FALLBACK_MIN_PRICE_USD:{ type: "number", min: 0, default: 1 },
   FALLBACK_MIN_PRICE_JPY:{ type: "number", min: 0, default: 100 },
   FALLBACK_MAX_ATR_PCT:  { type: "number", min: 0, max: 100, default: 25 },     // was 10: 성장주 허용

@@ -17,18 +17,20 @@ function getDefaults() {
 }
 const DEFAULTS = Object.freeze(getDefaults());
 
-// Minimal sector map for common KR/US symbols in goals.json.
-// Extend via EXPO_SECTOR_MAP='{"005930":"tech",...}' env.
+// Minimal sector map for the US/JP symbols in goals.json.
+// Extend via EXPO_SECTOR_MAP='{"AAPL":"tech",...}' env.
 const SECTOR_MAP = (() => {
   try { return JSON.parse(process.env.EXPO_SECTOR_MAP || "{}"); } catch { return {}; }
 })();
 Object.assign(SECTOR_MAP, {
-  "005930": "tech", "000660": "tech", "035420": "platform", "035720": "platform",
   "AAPL": "tech", "MSFT": "tech", "NVDA": "tech", "TSLA": "auto",
 });
 
 function marketOf(symbol) {
   const s = String(symbol).toUpperCase();
+  // A 6-digit symbol is Korean. The Korean market is not traded any more,
+  // but the classification is kept so the symbol can be recognised and
+  // refused rather than silently bucketed as a US position.
   if (/^\d{6}$/.test(s)) return "KR";
   if (/^\d{4}$/.test(s)) return "JP";
   if (/^[A-Z]+$/.test(s)) return "US";

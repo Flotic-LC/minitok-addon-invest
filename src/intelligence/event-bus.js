@@ -25,7 +25,15 @@ function createEventBus(options = {}) {
   const listeners = new Map(); // type -> [fn]
   const counters = {
     totalEmitted: 0,
-    totalDropped: 0,
+    // [2026-10-21] Retention, not data loss. The bus is a bounded ring
+    // buffer: the oldest event is evicted when the buffer is full, and
+    // expired events are pruned by age. The durable record lives in the
+    // event store, so neither eviction means a lost event. They used to be
+    // summed into one "totalDropped" counter, which read as a 43% loss rate
+    // when it was simply normal retention. The two causes are now counted
+    // separately.
+    evictedByCapacity: 0,
+    evictedByAge: 0,
     byType: {},
   };
 
@@ -44,13 +52,16 @@ function createEventBus(options = {}) {
     const cutoff = cfg.now() - cfg.maxAge;
     let pruneIdx = 0;
     while (pruneIdx < history.length && history[pruneIdx].tsMs < cutoff) pruneIdx++;
-    if (pruneIdx > 0) history.splice(0, pruneIdx);
+    if (pruneIdx > 0) {
+      history.splice(0, pruneIdx);
+      counters.evictedByAge += pruneIdx;
+    }
 
     // Enforce max history
     if (history.length >= cfg.maxHistory) {
       const overflow = history.length - cfg.maxHistory + 1;
       history.splice(0, overflow);
-      counters.totalDropped += overflow;
+      counters.evictedByCapacity += overflow;
     }
 
     history.push(event);
@@ -141,11 +152,23 @@ function createEventBus(options = {}) {
   }
 
   function stats() {
+    // How far back the buffer can actually be queried. A consumer that asks
+    // for a window wider than this simply gets nothing for the older part —
+    // the span makes that visible instead of surprising.
+    const spanMs = history.length > 1
+      ? history[history.length - 1].tsMs - history[0].tsMs
+      : 0;
     return {
       totalEmitted: counters.totalEmitted,
-      totalDropped: counters.totalDropped,
+      // Kept for backward compatibility: the sum of both retention causes.
+      totalDropped: counters.evictedByCapacity + counters.evictedByAge,
+      evictedByCapacity: counters.evictedByCapacity,
+      evictedByAge: counters.evictedByAge,
       currentSize: history.length,
       maxHistory: cfg.maxHistory,
+      capacityUsedPct: cfg.maxHistory > 0 ? Math.round((history.length / cfg.maxHistory) * 1000) / 10 : 0,
+      historySpanMs: spanMs,
+      historySpanMinutes: Math.round(spanMs / 60000),
       uniqueTypes: Object.keys(counters.byType).length,
       byType: { ...counters.byType },
     };
@@ -154,7 +177,8 @@ function createEventBus(options = {}) {
   function clear() {
     history.length = 0;
     counters.totalEmitted = 0;
-    counters.totalDropped = 0;
+    counters.evictedByCapacity = 0;
+    counters.evictedByAge = 0;
     counters.byType = {};
   }
 

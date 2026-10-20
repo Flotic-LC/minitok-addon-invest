@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "AI trading objectives for minitok tossinvest addon. Loaded by runner.js and injected into AI system prompts.",
+  "global_objectives": [
+    "Achieve consistent daily returns above the target engine phase threshold",
+    "Maintain drawdown below 3% from high water mark",
+    "Diversify across US and JP markets to reduce single-market risk",
+    "Continuously evaluate and expand watchlist based on market conditions"
+  ],
+  "market_goals": {
+    "US": {
+      "focus": ["mega_cap_tech", "ai_infrastructure", "broad_market_etf"],
+      "strategy": "Trend-following during ET 09:30-16:00. Pre/post-market gap analysis.",
+      "symbols": ["AAPL", "MSFT", "NVDA", "TSLA", "BRK.B", "SPY", "QQQ"],
+      "notes": "No daily price limits. Watch VIX for volatility regime changes."
+    },
+    "JP": {
+      "focus": ["automotive", "trading_house", "export_index"],
+      "strategy": "USD/JPY correlated plays. BOJ policy sensitive.",
+      "symbols": ["7203", "9984", "EWJ"],
+      "notes": "TSE +/-22% daily limit. REST-polled only (no WS support)."
+    }
+  },
+  "expansion_criteria": {
+    "description": "Conditions under which the AI should recommend adding new symbols or markets",
+    "add_symbol_when": [
+      "Current watchlist symbols show low volatility or range-bound behavior for >3 sessions",
+      "Sector rotation detected away from current holdings",
+      "New IPO or earnings catalyst presents asymmetric opportunity"
+    ],
+    "suggest_new_broker_when": [
+      "Target engine reaches Phase 3 (live_aggressive) consistently",
+      "All available Toss instruments are fully utilized",
+      "Crypto or forex exposure would improve portfolio Sharpe ratio"
+    ]
+  },
+  "risk_parameters": {
+    "max_single_position_pct": 15,
+    "max_sector_exposure_pct": 40,
+    "preferred_hold_period": "intraday_to_swing",
+    "stop_loss_guideline_pct": 2
+  },
+  "sector_mapping": {
+    "semiconductor": ["NVDA", "AAPL"],
+    "EV_battery": ["TSLA"],
+    "platform": ["MSFT", "AAPL"],
+    "mega_cap_tech": ["AAPL", "MSFT", "NVDA", "TSLA"],
+    "ai_infrastructure": ["NVDA", "MSFT"],
+    "broad_market_etf": ["SPY", "QQQ", "EWJ"],
+    "automotive": ["7203", "TSLA"],
+    "trading_house": ["9984"],
+    "conglomerate": ["BRK.B"]
+  }
+}

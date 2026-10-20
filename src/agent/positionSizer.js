@@ -28,6 +28,11 @@ function getDefaults() {
  * @param {number} input.price - current/entry price
  * @param {number|null} input.atr - ATR(14) for the symbol (same currency as price)
  * @param {number} [input.fxRate] - for overseas symbols: KRW per 1 unit of local currency
+ * @param {number} [input.capEquity] - equity the position-value cap is measured
+ *   against (defaults to input.equity)
+ * @param {number} [input.maxPositionPct] - cap the position value at this % of
+ *   capEquity. The ATR risk budget alone can size a low-volatility large cap at
+ *   ~1x equity (MSFT: 103 shares = 72.8M KRW on a 73.8M book).
  * @param {object} [opts] - DEFAULTS overrides
  * @returns {{ qty, valueKrw, method, stopPrice, riskKrw, reason }}
  */
@@ -56,6 +61,20 @@ function sizePosition(input, opts = {}) {
     method = "equity_pct";
   }
 
+  // [2026-10-21] Cap the position VALUE against equity. The risk budget sizes
+  // a position by how far it can fall, not by how much capital it consumes, so
+  // for a low-volatility large cap it proposed a position worth ~1x equity.
+  const capEquity = Number(input.capEquity) > 0 ? Number(input.capEquity) : equity;
+  const maxPositionPct = Number(input.maxPositionPct) || 0;
+  let positionCapped = false;
+  if (maxPositionPct > 0 && capEquity > 0) {
+    const capValue = capEquity * (maxPositionPct / 100);
+    if (qty * priceKrw > capValue) {
+      qty = Math.floor(capValue / priceKrw);
+      positionCapped = true;
+    }
+  }
+
   const valueKrw = qty * priceKrw;
   if (valueKrw > p.maxOrderValueKrw) {
     qty = Math.floor(p.maxOrderValueKrw / priceKrw);
@@ -70,15 +89,19 @@ function sizePosition(input, opts = {}) {
 
   const finalValue = Math.round(qty * priceKrw);
   const finalRisk = atr && atr > 0 ? Math.round(qty * p.atrMultiplier * atr) : 0;
+  const baseReason = method === "atr"
+    ? "risk " + finalRisk.toLocaleString() + " KRW (" + p.riskPctPerTrade + "% of equity) via " + p.atrMultiplier + "x ATR"
+    : p.equityFallbackPct + "% equity fallback";
   return {
     qty,
     valueKrw: finalValue,
     method,
     stopPrice,
     riskKrw: finalRisk,
-    reason: method === "atr"
-      ? "risk " + finalRisk.toLocaleString() + " KRW (" + p.riskPctPerTrade + "% of equity) via " + p.atrMultiplier + "x ATR"
-      : p.equityFallbackPct + "% equity fallback",
+    positionCapped,
+    reason: positionCapped
+      ? baseReason + ", capped at " + maxPositionPct + "% of equity (" + finalValue.toLocaleString() + " KRW)"
+      : baseReason,
   };
 }
 

@@ -16,7 +16,6 @@
  * Environment variables (optional overrides):
  *   FALLBACK_ALLOWLIST: comma-separated symbols (blocks all others if set)
  *   FALLBACK_BLOCKLIST: comma-separated symbols to block
- *   FALLBACK_MIN_PRICE_KRW: minimum price for KR symbols (default 1000)
  *   FALLBACK_MIN_PRICE_USD: minimum price for US symbols (default 1)
  *   FALLBACK_MIN_PRICE_JPY: minimum price for JP symbols (default 100)
  *   FALLBACK_MAX_ATR_PCT: maximum ATR% for new BUY (default 10)
@@ -31,6 +30,9 @@ function normalizeSymbol(sym) {
 }
 
 // Detect market from symbol format — no name lookup needed.
+// A 6-digit symbol is Korean. The Korean market is not traded any more, but
+// the classification is kept so the symbol is recognised and refused rather
+// than falling through to the US thresholds.
 function detectMarket(sym) {
   const s = normalizeSymbol(sym);
   if (/^\d{6}$/.test(s)) return "KR";
@@ -74,14 +76,12 @@ function checkQualityGate(symbol, ctx, opts = {}) {
   }
 
   // Price floor (avoid penny stocks) — per-market thresholds
+  // [2026-10-21] The Korean market was removed, so there is no KR price
+  // floor and no FALLBACK_MIN_PRICE_KRW setting.
   const price = Number(ctx && ctx.lastClose) || 0;
-  const minPriceKrw = opts.minPriceKrw ?? Number(process.env.FALLBACK_MIN_PRICE_KRW || 1000);
   const minPriceUsd = opts.minPriceUsd ?? Number(process.env.FALLBACK_MIN_PRICE_USD || 1);
   const minPriceJpy = opts.minPriceJpy ?? Number(process.env.FALLBACK_MIN_PRICE_JPY || 100);
 
-  if (market === "KR" && price < minPriceKrw) {
-    return { pass: false, reason: "price " + price + " < min " + minPriceKrw + " KRW" };
-  }
   if (market === "US" && price < minPriceUsd) {
     return { pass: false, reason: "price " + price + " < min " + minPriceUsd + " USD" };
   }

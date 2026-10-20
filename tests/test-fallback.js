@@ -118,23 +118,25 @@ test("detectMarket identifies markets correctly", () => {
   assert.equal(detectMarket("INVALID"), "UNKNOWN");
 });
 
-test("checkQualityGate passes for reasonable KR stock", () => {
-  const ctx = { lastClose: 70000, atr14: 1000 };
-  const result = checkQualityGate("005930", ctx);
+test("checkQualityGate passes for a reasonable US stock", () => {
+  // [2026-10-21] The Korean price floor was removed with the KR market, so
+  // the fixtures use the US thresholds.
+  const ctx = { lastClose: 200, atr14: 5 };
+  const result = checkQualityGate("AAPL", ctx);
   assert.equal(result.pass, true);
 });
 
 test("checkQualityGate fails for penny stock", () => {
-  const ctx = { lastClose: 500, atr14: 50 };
-  const result = checkQualityGate("005930", ctx);
+  const ctx = { lastClose: 0.5, atr14: 0.05 };
+  const result = checkQualityGate("AAPL", ctx);
   assert.equal(result.pass, false);
   assert.ok(result.reason.includes("price"));
 });
 
 test("checkQualityGate fails for high volatility", () => {
-  // atr14=30000 on price 100000 → 30% ATR, exceeds Tier 2 default cap of 25%
-  const ctx = { lastClose: 100000, atr14: 30000 };
-  const result = checkQualityGate("005930", ctx);
+  // atr14=30 on price 100 → 30% ATR, exceeds Tier 2 default cap of 25%
+  const ctx = { lastClose: 100, atr14: 30 };
+  const result = checkQualityGate("AAPL", ctx);
   assert.equal(result.pass, false);
   assert.ok(result.reason.includes("ATR"));
 });

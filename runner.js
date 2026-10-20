@@ -167,6 +167,8 @@ const council = createCouncil({
    maxPositionPct: (constitutionCouncilConfig && constitutionCouncilConfig.maxPositionPct) || 20,
   maxExposurePct: (constitutionCouncilConfig && constitutionCouncilConfig.maxExposurePct) || 85.0,
   maxDailyTrades: (constitutionCouncilConfig && constitutionCouncilConfig.maxDailyTrades) || 50,
+  // [2026-10-21] The constitution's max_open_positions (15), not max_daily_trades.
+  maxOpenPositions: (constitutionHardLimits && constitutionHardLimits.maxOpenPositions) || 15,
   minCashReservePct: (constitutionCouncilConfig && constitutionCouncilConfig.minCashReservePct) || 15.0,
   vixCrisisThreshold: (constitutionKillswitchConfig && constitutionKillswitchConfig.vixCrisisThreshold) || 40,
   constitutionHardLimits: constitutionHardLimits || null,
@@ -1063,7 +1065,8 @@ const REGIME_ATR_EXTREME = Number(process.env.REGIME_ATR_EXTREME || 0.03); // AT
 let currentRegime = "normal";
 let regimeChangedAt = Date.now();
 // [FIX] Only representative indices drive the global regime — prevents per-symbol ATR noise from causing rapid regime flips
-const REGIME_ANCHOR_SYMBOLS = ["SPY", "QQQ", "005930", "KS200"]; // US large-cap + KR bellwether
+// [2026-10-21] The Korean bellwether (005930, KS200) was removed with the KR market.
+const REGIME_ANCHOR_SYMBOLS = ["SPY", "QQQ"];
 
 function detectRegime(atr14, lastClose) {
   if (!atr14 || !lastClose || lastClose <= 0) return currentRegime;
@@ -1095,6 +1098,37 @@ function getRegimePositionMultiplier() {
   if (currentRegime === "extreme_vol") return 0.25; // 75% reduction
   if (currentRegime === "high_vol") return 0.5;     // 50% reduction
   return 1.0;
+}
+
+/**
+ * The HMM's current directional regime label ("bull" | "bear" | "sideways"),
+ * or null when the HMM is not trained.
+ *
+ * This is the regime the meta-cognition's `regimeAlignment` dimension scores
+ * against. The ATR-based `currentRegime` is a *volatility* regime
+ * (low_vol | normal | high_vol | extreme_vol) and shares no vocabulary with
+ * it, so feeding that one pinned the dimension at its neutral 0.5 for every
+ * single decision — one of the reasons every decision scored "weak".
+ */
+function getHmmRegimeLabel() {
+  try {
+    if (!regimeHMM || !regimeHMM.trained) return null;
+    const lr = _hmmReturnsBuffer.length > 0 ? _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1] : null;
+    if (lr == null) return null;
+    const r = regimeHMM.filterOnline([lr, Math.abs(lr), lr]);
+    return r && r.label ? r.label : null;
+  } catch (e) { return null; }
+}
+
+/** The same regime rendered for the AI prompt: "bull (p=0.72)". */
+function getHmmRegimePrompt() {
+  try {
+    if (!regimeHMM || !regimeHMM.trained) return "not trained";
+    const lr = _hmmReturnsBuffer.length > 0 ? _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1] : null;
+    if (lr == null) return "unknown";
+    const r = regimeHMM.filterOnline([lr, Math.abs(lr), lr]);
+    return r ? r.label + " (p=" + r.prob + ")" : "unknown";
+  } catch (e) { return "unknown"; }
 }
 
 // [Phase G] Regime HMM — trained on rolling returns, infers bull/bear/sideways
@@ -1710,17 +1744,20 @@ async function heldPositionSweep() {
     var fxUsdKrw = cachedFxRates.FX_USD_KRW || 1350;
     var totalCashKrw = cashKrw + cashUsd * fxUsdKrw; // USD is directly usable for US-market buys
     var totalEquity = computeTotalEquityKrw(portfolio);
-    // [Patch 2026-10-15] KRW-denominated shortage gate: USD holdings must NOT mask KRW=0.
-    // Auto-exchange (USD->KRW) exists precisely for this state, so gate on cashKrw itself.
-    var CASH_RESCUE_KRW_MIN = Number(process.env.CASH_RESCUE_KRW_MIN || 100000);
+    // [2026-10-21] The KRW-denominated shortage gate was removed with the
+    // Korean market: a KRW=0 balance can no longer block any trade, so the
+    // sweep only escalates when the USD balance is short.
     var CASH_RESCUE_USD_MIN = Number(process.env.CASH_RESCUE_USD_MIN || 50);
     var positions = portfolio.positions.slice().sort(function(a, b) { return (b.marketValue || 0) - (a.marketValue || 0); });
     // [FIX] Cash-rescue must target the currency that is actually short. Selling a
     // USD position frees USD, which cannot fund a KRW-denominated KRX order — the
     // previous behaviour liquidated profitable US holdings (QQQ/SPY) to chase a KRW
     // shortage that USD could never resolve.
-    var rescueCurrency = cashKrw < CASH_RESCUE_KRW_MIN ? "KRW"
-      : (cashUsd < CASH_RESCUE_USD_MIN ? "USD" : null);
+    // [2026-10-21] The Korean market is no longer traded, so a KRW shortage can
+    // never block a trade: only a USD shortage can. The KRW rescue branch was
+    // removed — it used to push the bot to liquidate US holdings to raise a
+    // currency it would never spend.
+    var rescueCurrency = cashUsd < CASH_RESCUE_USD_MIN ? "USD" : null;
     var cashRescueMode = !!rescueCurrency && (totalEquity > 1000000 || positions.length > 0);
     var reviewed = 0;
     var maxReviews = cashRescueMode ? HELD_SWEEP_MAX_PER_CYCLE * 2 : HELD_SWEEP_MAX_PER_CYCLE;
@@ -1778,39 +1815,10 @@ async function heldPositionSweep() {
     }
     if (reviewed > 0) console.log("[held-sweep] Reviewed " + reviewed + "/" + positions.length + " positions, cashKrw=" + Math.round(cashKrw) + ", cashUsd=" + cashUsd.toFixed(2) + ", totalCashKrw=" + Math.round(totalCashKrw) + ", equityKrw=" + Math.round(totalEquity) + ", rescue=" + cashRescueMode + ", rescueCurrency=" + (rescueCurrency || "none") + ", fxUSD=" + cachedFxRates.FX_USD_KRW);
 
-    // [AUTO-EXCHANGE] If KRW cash is still critically low after sweep, check USD buying power
-    // and alert for a manual USD → KRW exchange (the Toss OpenAPI exposes no FX endpoint;
-    // see EXCHANGE_EXECUTION_NOTES.md — every other blocker on the WTS path is cleared).
-    if (rescueCurrency === "KRW") {
-      try {
-        var token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
-        var usdBp = await getBuyingPower(token, TOSS_ACCOUNT_SEQ, "USD");
-        var usdCash = Number(usdBp.body?.cashBuyingPower || 0);
-        var fxRate = cachedFxRates.FX_USD_KRW || 1350;
-        var usdCashKrw = usdCash * fxRate;
-        console.log("[auto-exchange] USD cash=" + usdCash.toFixed(2) + " (≈" + Math.round(usdCashKrw) + " KRW), cashKrw=" + Math.round(cashKrw));
-        // [FIX] Size the request against the KRW actually needed to open KR positions
-        // (ATR sizing targets ~5% of equity per position, single-position cap 15%).
-        // The previous flat 100,000 KRW floor understated the need by ~50x and asked
-        // for 76 USD, which could not fund a single position.
-        var krwTargetPct = Number(process.env.KR_CASH_TARGET_PCT || 20);
-        var krwTarget = Math.max(CASH_RESCUE_KRW_MIN, Math.round(totalEquity * krwTargetPct / 100));
-        var krwNeeded = Math.max(0, krwTarget - cashKrw);
-        var exchangeAmount = Math.min(usdCash, Math.ceil(krwNeeded / fxRate));
-        if (usdCash > 10 && exchangeAmount >= 1) {
-          if (!_lastExchangeAlertAt || (Date.now() - _lastExchangeAlertAt) > EXCHANGE_ALERT_THROTTLE_MS) {
-            _lastExchangeAlertAt = Date.now();
-            console.log("[auto-exchange] ALERT: USD->KRW " + exchangeAmount.toFixed(2) + " suggested (≈" + Math.round(exchangeAmount * fxRate) + " KRW, target " + krwTarget + " KRW; manual exchange required, Toss API has no FX endpoint)");
-            // [Notify classification] A blocked currency pool cannot be fixed by
-            // the bot — it needs a manual exchange, so it is a critical event.
-            sendTelegramAlert("[EXCHANGE] " + exchangeAmount.toFixed(2) + " USD → KRW 수동 환전 필요\n≈" + Math.round(exchangeAmount * fxRate) + " KRW (목표 " + krwTarget + " KRW)\n현재 KRW=" + Math.round(cashKrw) + ", USD=" + usdCash.toFixed(2) + ", rate=" + fxRate + "\nToss 앱에서 환전 → 이후 자동 매매 재개", "critical");
-            journalEntry({ type: "EXCHANGE_ALERT", from: "USD", to: "KRW", suggestedAmount: exchangeAmount, suggestedKrw: Math.round(exchangeAmount * fxRate), krwTarget: krwTarget, fxRate: fxRate, reason: "no_api_support" });
-          }
-        }
-      } catch (exErr) {
-        console.warn("[auto-exchange] Error: " + exErr.message);
-      }
-    }
+    // [AUTO-EXCHANGE] The USD->KRW alert was removed on 2026-10-21 together
+    // with the Korean market: its only purpose was to fund KRX positions, and
+    // a KRW balance can no longer block a trade. The KRW->USD direction below
+    // is kept — it funds USD trading by returning a stranded KRW balance.
 
     // [AUTO-EXCHANGE KRW->USD] If USD cash is critically low but KRW is available,
     // alert for manual conversion (auto-exchange not supported by Toss API).
@@ -2487,7 +2495,7 @@ async function askAI(marketData, opts) {
     "Use 'max_profit' for high-conviction aggressive opportunities. Use 'standard' for disciplined target-based trades.",
     "Current UTC time: " + utcNow + ". Active markets: [" + (activeMarkets.join(", ") || "none - off-hours") + "].",
     "Phase: " + projection.phase + ", dryRun: " + projection.dryRun + ", halted: " + projection.halted + ".",
-    "Market regime (ATR): " + currentRegime + ". HMM regime: " + (regimeHMM && regimeHMM.trained ? (function() { var lr = _hmmReturnsBuffer.length > 0 ? _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1] : null; var ft = lr != null ? [lr, Math.abs(lr), lr] : null; var r = ft ? regimeHMM.filterOnline(ft) : null; return r ? r.label + " (p=" + r.prob + ")" : "unknown"; })() : "not trained") + ". Position multiplier: " + getRegimePositionMultiplier().toFixed(2) + "x.",
+    "Market regime (ATR): " + currentRegime + ". HMM regime: " + (regimeHMM && regimeHMM.trained ? getHmmRegimePrompt() : "not trained") + ". Position multiplier: " + getRegimePositionMultiplier().toFixed(2) + "x.",
     "Recent win rate: " + ((computeRecentWinRate() || 0) * 100).toFixed(0) + "%.",
     "",
   ] : [
@@ -2499,7 +2507,7 @@ async function askAI(marketData, opts) {
     "Effective target: " + getEffectiveTargetPct().toFixed(2) + "% (adaptive offset: " + adaptiveTargetOffset.toFixed(2) + "%).",
     "Trailing stop: active at " + TRAILING_STOP_PCT + "% from peak (min profit activation: " + TRAILING_STOP_MIN_PROFIT_PCT + "%).",
     "Recent win rate: " + ((computeRecentWinRate() || 0) * 100).toFixed(0) + "%. Adjust position sizing accordingly.",
-    "Market regime (ATR): " + currentRegime + ". HMM regime: " + (regimeHMM && regimeHMM.trained ? (function() { var lr = _hmmReturnsBuffer.length > 0 ? _hmmReturnsBuffer[_hmmReturnsBuffer.length - 1] : null; var ft = lr != null ? [lr, Math.abs(lr), lr] : null; var r = ft ? regimeHMM.filterOnline(ft) : null; return r ? r.label + " (p=" + r.prob + ")" : "unknown"; })() : "not trained") + ". Position multiplier: " + getRegimePositionMultiplier().toFixed(2) + "x.",
+    "Market regime (ATR): " + currentRegime + ". HMM regime: " + (regimeHMM && regimeHMM.trained ? getHmmRegimePrompt() : "not trained") + ". Position multiplier: " + getRegimePositionMultiplier().toFixed(2) + "x.",
     "",
   ];
   // Inject goals template if available
@@ -3188,14 +3196,9 @@ const CROSS_ASSET_GUARD_THRESHOLD = Number(process.env.CROSS_ASSET_GUARD_THRESHO
 
 function isCrossAssetBuyBlocked(symbol) {
   var s = String(symbol).toUpperCase();
-  var isKR = /^\d{6}$/.test(s);
   var isJP = /^\d{4}$/.test(s);
-  // If USD/KRW spiked up (KRW weakening), block new KR buys to avoid currency drag
-  if (isKR && usdKrwChangePct > CROSS_ASSET_GUARD_THRESHOLD) {
-    crossAssetGuardTriggers++;
-    console.log("[cross-asset-guard] Blocked BUY " + symbol + ": USD/KRW up " + usdKrwChangePct.toFixed(2) + "% (KRW weakening)");
-    return true;
-  }
+  // [2026-10-21] The Korean branch was removed with the KR market: there is
+  // no KRX buy to protect against a KRW move.
   // If USD/KRW dropped sharply (KRW strengthening), block new JP buys (JPY typically inverse-correlated)
   if (isJP && usdKrwChangePct < -CROSS_ASSET_GUARD_THRESHOLD) {
     crossAssetGuardTriggers++;
@@ -3802,14 +3805,15 @@ async function enforcePositionSizing(input, strategy, decision) {
     const candleCtx = lastCandleCtx ? lastCandleCtx.get(input.symbol) : null;
     const atr = candleCtx && candleCtx.atr14 ? candleCtx.atr14 : null;
     const market = detectMarket(input.symbol);
+    // [2026-10-21] The KRW branch was removed with the Korean market: only
+    // US (USD) and JP (JPY) are tradable, so the base currency is always a
+    // foreign one and always needs a KRW rate.
     let fxRate = 1;
-    if (market !== "KR") {
-      try {
-        const fxResp = await getExchangeRate(await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET), market === "US" ? "USD" : "JPY", "KRW");
-        // Toss wraps FX response in {result:{rate:"..."}}
-        fxRate = Number((fxResp.body && (fxResp.body.result && fxResp.body.result.rate ? fxResp.body.result.rate : fxResp.body.rate))) || 1;
-      } catch {}
-    }
+    try {
+      const fxResp = await getExchangeRate(await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET), market === "US" ? "USD" : "JPY", "KRW");
+      // Toss wraps FX response in {result:{rate:"..."}}
+      fxRate = Number((fxResp.body && (fxResp.body.result && fxResp.body.result.rate ? fxResp.body.result.rate : fxResp.body.rate))) || 1;
+    } catch {}
     // [Phase E] Scale position size by orchestrator weight for the active strategy
     const orchWeight = (function() {
       try {
@@ -3819,7 +3823,17 @@ async function enforcePositionSizing(input, strategy, decision) {
       } catch { return 1.0; }
     })();
     const orchScaledEquity = totalEquity * orchWeight;
-    const sizing = positionSizer.sizePosition({ equity: orchScaledEquity, price: input.price, atr, fxRate });
+    // [IMPROVE #5] Always apply regime-based position multiplier
+    const regimeMult = getRegimePositionMultiplier();
+    const effectiveMaxPct = MAX_SINGLE_POSITION_PCT * regimeMult;
+    // [2026-10-21] The cap is handed to the sizer so it never proposes a
+    // position the book cannot hold. The ATR risk budget alone sized MSFT at
+    // 103 shares — 72.8M KRW on a 73.8M equity book, i.e. ~99% of equity in
+    // one name. The cap below remains as a safety net.
+    const sizing = positionSizer.sizePosition({
+      equity: orchScaledEquity, price: input.price, atr, fxRate,
+      capEquity: totalEquity, maxPositionPct: effectiveMaxPct,
+    });
     if (sizing.qty === 0) return { ok: false, reason: "positionSizer: " + sizing.reason };
     if (sizing.qty !== input.quantity) {
       console.log("[position-sizing] ATR sized " + input.symbol + ": " + input.quantity + " -> " + sizing.qty + " (" + sizing.reason + ")" + (orchWeight < 1.0 ? " [orch=" + (orchWeight * 100).toFixed(0) + "%%]" : ""));
@@ -3834,9 +3848,6 @@ async function enforcePositionSizing(input, strategy, decision) {
     // to a compliant size, so every US order died on the exposure gate.
     const orderValueKrw = input.price * input.quantity * fxRate;
     let positionPct = (orderValueKrw / totalEquity) * 100;
-    // [IMPROVE #5] Always apply regime-based position multiplier
-    const regimeMult = getRegimePositionMultiplier();
-    const effectiveMaxPct = MAX_SINGLE_POSITION_PCT * regimeMult;
     if (positionPct > effectiveMaxPct) {
       // Reduce quantity to fit within effective limit
       const maxValue = totalEquity * (effectiveMaxPct / 100);
@@ -3987,18 +3998,7 @@ function normalizeTickPrice(symbol, price) {
   var p = Number(price);
   if (!isFinite(p) || p <= 0) return p;
   var market = detectMarket(symbol);
-  if (market === "KR") {
-    var tick;
-    if (p < 2000) tick = 1;
-    else if (p < 5000) tick = 5;
-    else if (p < 20000) tick = 10;
-    else if (p < 50000) tick = 50;
-    else if (p < 200000) tick = 100;
-    else if (p < 500000) tick = 500;
-    else tick = 1000;
-    var rounded = Math.round(p / tick) * tick;
-    return Math.max(tick, rounded);
-  }
+  // [2026-10-21] The KRX tick-size table was removed with the Korean market.
   if (market === "US") {
     return Number(p.toFixed(2));
   }
@@ -4127,9 +4127,20 @@ async function _executeDecisionInner(decision, sym) {
       console.log("[exec-info] Pending check failed for " + sym + ", proceeding: " + _chkE.message);
     }
   }
+  // [2026-10-21] Market eligibility gate — hard block before anything else.
+  // The Korean market is no longer traded. The session check below is NOT
+  // sufficient on its own: it lets off-hours orders queue as LIMIT orders,
+  // so a market that is merely closed could still receive orders. Only a
+  // market on the allow-list may trade.
+  const symbolMarket = detectMarket(sym);
+  if (!cal.isTradableMarket(symbolMarket)) {
+    console.log("[exec] Blocked " + decision.action + " " + sym + ": market " + symbolMarket + " is not tradable");
+    journalEntry({ type: "ORDER_BLOCKED", action: decision.action, symbol: sym, reason: "MARKET_NOT_TRADABLE", market: symbolMarket });
+    return;
+  }
+
   // Market hours guard: prevent execution when the symbol's market is closed
   const activeMarkets = getActiveMarkets();
-  const symbolMarket = detectMarket(sym);
   if (symbolMarket && !activeMarkets.includes(symbolMarket)) {
     // [CASH-RESCUE] Allow SELL orders to queue as LIMIT during off-hours
     // Toss accepts LIMIT orders outside market hours and executes them at next open
@@ -4252,6 +4263,26 @@ async function _executeDecisionInner(decision, sym) {
   };
   if (!input.price || input.price <= 0) { console.log("[exec] Skipped: invalid price"); return; }
 
+  // [2026-10-21] The broker rejects fractional order quantities.
+  // Evidence from the live account: every order the broker filled had an
+  // integer quantity (242, 13, 11, 4, 3, 1 ...) while the one fractional
+  // order (SELL 0.24x SPY) was refused with `invalid-request`. A SELL is
+  // therefore floored to whole shares; a position below one share cannot be
+  // closed through the broker and the order is skipped instead of being
+  // rejected.
+  if (input.side === "SELL") {
+    var _wholeShares = Math.floor(Number(input.quantity));
+    if (!(_wholeShares >= 1)) {
+      console.log("[exec] Skipped: SELL quantity " + input.quantity + " " + input.symbol + " is below one whole share — the broker accepts whole shares only");
+      journalEntry({ type: "ORDER_BLOCKED", action: "SELL", symbol: input.symbol, reason: "FRACTIONAL_QUANTITY_UNSUPPORTED", quantity: input.quantity });
+      return;
+    }
+    if (_wholeShares !== input.quantity) {
+      console.log("[exec] SELL quantity floored " + input.quantity + " -> " + _wholeShares + " (" + input.symbol + "): the broker accepts whole shares only");
+    }
+    input.quantity = _wholeShares;
+  }
+
   // [P7-1] Cross-asset FX guard before BUY
   if (input.side === "BUY" && isCrossAssetBuyBlocked(input.symbol)) {
     console.log("[exec] Skipped: cross-asset FX guard blocked BUY for " + input.symbol);
@@ -4364,7 +4395,11 @@ async function _executeDecisionInner(decision, sym) {
        var _mcId = "mc-" + Date.now() + "-" + String(input.symbol).toUpperCase();
        var _mcCtx = {
          action: input.side,
-         regime: currentRegime,
+         // [2026-10-21] The directional HMM regime, not the ATR volatility
+         // regime. The meta-cognition scores regimeAlignment against
+         // bull/bear/sideways; the volatility regime shares no vocabulary
+         // with it and pinned the dimension at its neutral default.
+         regime: getHmmRegimeLabel(),
          intelligence: decision._metaCogIntel || null,
          councilResult: decision._metaCogCouncil || null,
          walkForwardResult: walkForwardLastResult || null,
@@ -4373,8 +4408,18 @@ async function _executeDecisionInner(decision, sym) {
        };
        var _mcResult = metaCognition.recordDecision(_mcId, _mcCtx);
        if (_mcResult) {
+         // [2026-10-21] Log the per-dimension breakdown. Without it a "weak"
+         // verdict gave no clue which dimension was missing information.
+         var _mcScores = _mcResult.scores || {};
          console.log("[meta-cog] " + input.side + " " + input.symbol + " score=" + _mcResult.aggregate +
-           " weak=" + _mcResult.isWeak + " (id=" + _mcId + ")");
+           " weak=" + _mcResult.isWeak + " (id=" + _mcId + ") dims={" +
+           "evidence=" + (_mcScores.evidenceDepth != null ? _mcScores.evidenceDepth.toFixed(2) : "n/a") +
+           ", council=" + (_mcScores.councilAgreement != null ? _mcScores.councilAgreement.toFixed(2) : "n/a") +
+           ", regime=" + (_mcScores.regimeAlignment != null ? _mcScores.regimeAlignment.toFixed(2) : "n/a") +
+           ", memory=" + (_mcScores.memorySupport != null ? _mcScores.memorySupport.toFixed(2) : "n/a") +
+           ", walkfwd=" + (_mcScores.walkForwardPass != null ? _mcScores.walkForwardPass.toFixed(2) : "n/a") +
+           ", novelty=" + (_mcScores.noveltyPenalty != null ? _mcScores.noveltyPenalty.toFixed(2) : "n/a") +
+           "} regimeLabel=" + (_mcCtx.regime || "unknown"));
          // For BUY: store ID so SELL fill can attach outcome
          if (input.side === "BUY") {
            metaCogDecisionMap.set(String(input.symbol).toUpperCase(), { decisionId: _mcId, ts: Date.now() });
@@ -4444,25 +4489,64 @@ async function start() {
   }
 
   // --- Dynamic Universe Manager (with disk persistence) ---
-  const UNIVERSE_PERSIST_PATH = path.join(__dirname, "universe.json");
+  // [2026-10-21] The universe used to be written to /app/universe.json, which
+  // lives in the container's ephemeral layer, and .dockerignore also excluded
+  // it from the image. The persisted universe therefore never came back: every
+  // container recreate started from the hard-coded defaults and every symbol
+  // the AI had added was lost. It now lives on the durable state volume
+  // (STATE_DIR=/app/state), with the image-baked universe.json as the seed.
+  const UNIVERSE_PERSIST_PATH = (process.env.STATE_DIR
+    ? path.join(process.env.STATE_DIR, "universe.json")
+    : path.join(__dirname, "universe.json"));
+  const UNIVERSE_SEED_PATH = path.join(__dirname, "universe.json");
 
-  function _loadPersistedUniverse() {
+  function _readUniverseFile(filePath) {
     try {
-      if (fs.existsSync(UNIVERSE_PERSIST_PATH)) {
-        const raw = fs.readFileSync(UNIVERSE_PERSIST_PATH, "utf8");
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-          console.log("[universe] Loaded " + data.symbols.length + " persisted symbols from universe.json (updated=" + (data.updatedAt || "unknown") + ")");
-          return data.symbols.map(function(s) { return String(s).trim().toUpperCase(); }).filter(Boolean);
-        }
+      if (!fs.existsSync(filePath)) return null;
+      const raw = fs.readFileSync(filePath, "utf8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+        return data.symbols.map(function(s) { return String(s).trim().toUpperCase(); }).filter(Boolean);
       }
     } catch (e) {
-      console.error("[universe] Failed to load universe.json: " + e.message);
+      console.error("[universe] Failed to load " + filePath + ": " + e.message);
     }
     return null;
   }
 
-  const _defaultSymbols = ["005930", "000660", "035720", "005380", "000270", "068270", "035420", "051910", "AAPL", "MSFT", "NVDA", "TSLA", "BRK.B", "SPY", "QQQ", "META", "AMZN", "GOOGL"];
+  function _loadPersistedUniverse() {
+    // A symbol from a market this bot does not trade is never loaded, no
+    // matter what a stale file contains.
+    function _tradableOnly(list, origin) {
+      if (!list) return null;
+      const kept = [];
+      const dropped = [];
+      for (const s of list) {
+        if (cal.isTradableMarket(detectMarket(s))) kept.push(s);
+        else dropped.push(s);
+      }
+      if (dropped.length > 0) {
+        console.log("[universe] Dropped " + dropped.length + " symbol(s) from a non-tradable market (" + dropped.join(", ") + ") from " + origin);
+      }
+      return kept.length > 0 ? kept : null;
+    }
+    const persisted = _tradableOnly(_readUniverseFile(UNIVERSE_PERSIST_PATH), UNIVERSE_PERSIST_PATH);
+    if (persisted) {
+      console.log("[universe] Loaded " + persisted.length + " persisted symbols from " + UNIVERSE_PERSIST_PATH);
+      return persisted;
+    }
+    const seed = _tradableOnly(_readUniverseFile(UNIVERSE_SEED_PATH), UNIVERSE_SEED_PATH);
+    if (seed) {
+      console.log("[universe] Loaded " + seed.length + " seed symbols from " + UNIVERSE_SEED_PATH);
+      return seed;
+    }
+    return null;
+  }
+
+  // [2026-10-21] The Korean symbols were removed with the KR market. The
+  // persisted universe.json is the primary source; this list is the fallback
+  // when it is missing or empty.
+  const _defaultSymbols = ["AAPL", "MSFT", "NVDA", "TSLA", "BRK.B", "SPY", "QQQ", "META", "AMZN", "GOOGL"];
   var initialSymbols;
   if (process.env.WATCH_SYMBOLS) {
     initialSymbols = process.env.WATCH_SYMBOLS.split(",").map(function(s) { return s.trim().toUpperCase(); }).filter(Boolean);
@@ -4508,14 +4592,21 @@ async function start() {
     add(sym) {
       const s = String(sym).trim().toUpperCase();
       if (!s || this.symbols.has(s)) return false;
-      const isKR = /^\d{6}$/.test(s), isJP = /^\d{4}$/.test(s), isUS = /^[A-Z][A-Z.]{0,5}$/.test(s);
-      if (!isKR && !isJP && !isUS) { console.log("[universe] Rejected invalid: " + s); return false; }
+      // [2026-10-21] Only a symbol from a tradable market may enter the
+      // watchlist. A Korean symbol is refused here, so it can never be
+      // polled, subscribed to or offered to the AI.
+      if (!cal.isTradableMarket(detectMarket(s))) {
+        console.log("[universe] Rejected (market not tradable): " + s);
+        return false;
+      }
+      const isJP = /^\d{4}$/.test(s), isUS = /^[A-Z][A-Z.]{0,5}$/.test(s);
+      if (!isJP && !isUS) { console.log("[universe] Rejected invalid: " + s); return false; }
       this.symbols.add(s); this.allowed.add(s);
       console.log("[universe] Added " + s + " (total: " + this.symbols.size + ")");
-      if (wsClient && (isKR || isUS)) {
+      if (wsClient && isUS) {
         try {
           // Merge new symbol into existing subscriptions instead of replacing all
-          const newType = isKR ? "trade:kr" : "trade:us";
+          const newType = "trade:us";
           const currentSubs = wsClient.getSubscriptions();
           const existingEntry = currentSubs.find(function(sub) { return sub.type === newType; });
           let mergedSubs;
@@ -4533,7 +4624,7 @@ async function start() {
       _schedulePersist();
       return true;
     },
-    getKR() { return Array.from(this.symbols).filter(function(s) { return /^\d{6}$/.test(s); }); },
+    // [2026-10-21] getKR() was removed with the Korean market.
     getUS() { return Array.from(this.symbols).filter(function(s) { return /^[A-Z][A-Z.]+$/.test(s); }); },
     getJP() { return Array.from(this.symbols).filter(function(s) { return /^\d{4}$/.test(s); }); },
     getAll() { return Array.from(this.symbols); },
@@ -4565,6 +4656,14 @@ async function start() {
   const origExecute = executeDecision;
   executeDecision = async function(decision) {
     if (decision && decision.action === "ADD_SYMBOL" && decision.symbol) {
+      // [2026-10-21] Only a symbol from a tradable market may enter the
+      // watchlist. Without this the AI could keep re-adding Korean symbols
+      // that are then polled and blocked at execution time.
+      const _addMarket = detectMarket(decision.symbol);
+      if (!cal.isTradableMarket(_addMarket)) {
+        console.log("[ai] ADD_SYMBOL " + decision.symbol + ": REJECTED (market " + _addMarket + " is not tradable)");
+        return { ok: false, action: "ADD_SYMBOL", reason: "MARKET_NOT_TRADABLE" };
+      }
       const added = universe.add(decision.symbol);
       console.log("[ai] ADD_SYMBOL " + decision.symbol + ": " + (added ? "OK" : "REJECTED"));
       return { ok: added, action: "ADD_SYMBOL" };
@@ -4931,11 +5030,13 @@ async function start() {
       // [FIX] Fetch token and portfolio within this scope (not available from askAI)
       const token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
       const portfolio = await fetchPortfolioContext();
-      const activeMarkets = getActiveMarkets(); // returns ["KR", "US", ...]
+      const activeMarkets = getActiveMarkets(); // e.g. ["US", "JP"]
       const planUniverse = [];
-      // Use symbols from our dynamic universe manager, filtered by active markets
+      // Use symbols from our dynamic universe manager, filtered by tradable market
       const allSymbols = universe.getAll();
       for (const sym of allSymbols) {
+        // [2026-10-21] Skip symbols from a market this bot does not trade.
+        if (!cal.isTradableMarket(detectMarket(sym))) continue;
         try {
           const ctx = await fetchCandleContext(token, sym);
           if (ctx) planUniverse.push({ symbol: sym, ctx });
@@ -5003,8 +5104,8 @@ async function start() {
   // symbols (via universe.add / ADD_SYMBOL) survive reconnections.
   function buildCurrentSubs() {
     var built = [];
-    var kr = universe.getKR(), us = universe.getUS();
-    if (kr.length) built.push({ type: "trade:kr", codes: kr });
+    // [2026-10-21] The Korean trade subscription was removed with the KR market.
+    var us = universe.getUS();
     if (us.length) built.push({ type: "trade:us", codes: us });
     built.push({ type: "personal:order", codes: [TOSS_ACCOUNT_SEQ] });
     return built;
@@ -5077,7 +5178,8 @@ async function start() {
             // skip this tick
           } else {
             scalperLastTick.set(_scSym0, Date.now());
-            var _scFx = _scMkt === "KR" ? 1 : (_scMkt === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : (cachedFxRates.FX_USD_KRW || 1350));
+            // [2026-10-21] The Korean branch was removed with the KR market.
+            var _scFx = _scMkt === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : (cachedFxRates.FX_USD_KRW || 1350);
             var _scPf = (typeof portfolioCache !== "undefined" ? portfolioCache : null) || { cashKrw: 0, cashUsd: 0, positions: [] };
             var _scEq = (typeof computeTotalEquityKrw === "function") ? computeTotalEquityKrw(_scPf) : 0;
             var _scDec = scalper.onTick(_scSym0, _scPrice, { equityKrw: _scEq, fxRate: _scFx });
@@ -5300,7 +5402,7 @@ async function start() {
   if (_wsWatchdogTimer.unref) _wsWatchdogTimer.unref();
 
   console.log("[runner] Watching: " + universe.getAll().join(", "));
-  console.log("[runner] Markets: KR(" + universe.getKR().length + "), US(" + universe.getUS().length + "), JP(" + universe.getJP().length + " via REST poll)");
+  console.log("[runner] Markets: US(" + universe.getUS().length + "), JP(" + universe.getJP().length + " via REST poll)");
   console.log("[runner] Dynamic Universe enabled. Max: " + (process.env.MAX_UNIVERSE_SIZE || 50));
   console.log("[runner] Bot is running. Press Ctrl+C to stop.");
   selfAudit.start(60000); // [L1 Self-Audit] Check rules every 60s
@@ -5363,7 +5465,7 @@ async function start() {
       const wsStale = wsUp && (wsLastMessageAt === 0 || (_staleNow - wsLastMessageAt) > WS_STALE_THRESHOLD_MS);
       // [DIAG] Log market selection state for debugging
       if (_pollIter <= 3) {
-        console.log("[rest-poll] state: active=" + JSON.stringify(active) + " wsUp=" + wsUp + " wsStale=" + wsStale + " allClosed=" + allMarketsClosed + " JP=" + universe.getJP().length + " KR=" + universe.getKR().length + " US=" + universe.getUS().length);
+        console.log("[rest-poll] state: active=" + JSON.stringify(active) + " wsUp=" + wsUp + " wsStale=" + wsStale + " allClosed=" + allMarketsClosed + " JP=" + universe.getJP().length + " US=" + universe.getUS().length);
       }
       if (wsStale && wsLastMessageAt === 0 && wsConnectedAt > 0 && (_staleNow - wsConnectedAt) > 60000) {
         var _lastBgLog2 = _staleNow - (lastBackgroundPollLog || 0);
@@ -5395,9 +5497,7 @@ async function start() {
         marketsToPoll.push({ market: "US", codes: universe.getUS() });
       }
       if (!wsEffectivelyUp || allMarketsClosed) {
-        if (universe.getKR().length > 0 && (active.includes("KR") || allMarketsClosed)) {
-          marketsToPoll.push({ market: "KR", codes: universe.getKR() });
-        }
+        // [2026-10-21] The Korean REST poll was removed with the KR market.
         if (marketsToPoll.length > 0 && !wsEffectivelyUp && !allMarketsClosed) {
           console.log("[rest-poll] WS " + (wsStale ? "stale" : "down") + " — polling " + marketsToPoll.map(function(m) { return m.market + "(" + m.codes.length + ")"; }).join(", "));
         }
@@ -5518,12 +5618,19 @@ async function start() {
     try {
       const token = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
       const active = getActiveMarkets();
-      const marketsToScan = active.length > 0 ? active : ["KR"];
+      // [2026-10-21] The Korean exchanges were removed with the KR market:
+      // the discovery scan no longer looks at KOSPI/KOSDAQ — that is how
+      // Korean symbols kept entering the watchlist — and the empty-market
+      // fallback is US rather than KR. The JP branch used to fall back to
+      // KOSPI, which is the wrong exchange for a Japanese symbol.
+      const marketsToScan = active.length > 0 ? active : ["US"];
       const targetMarket = marketsToScan[Math.floor(Math.random() * marketsToScan.length)];
-      // Toss API only accepts: KOSPI, KOSDAQ, NYSE, NASDAQ, AMEX
-      const tossMarkets = targetMarket === "US"
-        ? ["NYSE", "NASDAQ"]
-        : (targetMarket === "JP" ? ["KOSPI"] : ["KOSPI", "KOSDAQ"]); // JP fallback to KR
+      // Toss API only accepts: NYSE, NASDAQ, AMEX (KOSPI/KOSDAQ were dropped)
+      const tossMarkets = targetMarket === "US" ? ["NYSE", "NASDAQ", "AMEX"] : [];
+      if (tossMarkets.length === 0) {
+        console.log("[discovery] No scannable exchange for market " + targetMarket + " — skipping scan");
+        return;
+      }
       const tossMarket = tossMarkets[Math.floor(Math.random() * tossMarkets.length)];
       console.log("[discovery] Scanning " + tossMarket + " for high-volume symbols...");
       const discovered = await discoverSymbols(token, tossMarket, 5);
