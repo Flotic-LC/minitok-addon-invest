@@ -112,6 +112,44 @@ test("council: a BUY is still blocked by maxSinglePositionPct", async () => {
   assert.ok(r.issues.some((i) => i.includes("Position") && i.includes("exceeds hard limit")));
 });
 
+test("council: the risk manager does not penalise a SELL for the current exposure or the order size", async () => {
+  const council = createCouncil({ maxPositionPct: 20, maxExposurePct: 85 });
+  const decision = {
+    action: "SELL", symbol: "META", price: 694.8, quantity: 23,
+    reason: "Reduce META concentration from 36% of equity toward the single-position limit",
+  };
+  const ctx = {
+    totalEquity: EQUITY, currentExposurePct: 87.2,
+    orderValueKrw: Math.round(694.8 * 23 * FX),
+    technicals: { rsi14: 50, macd: { histogram: 0.1 }, lastClose: 694.8 },
+    regime: "neutral", intelligence: { vix: 18 },
+  };
+  const r = await council.evaluate(decision, ctx);
+  const risk = r.votes.find((v) => v.role === "risk_manager");
+  assert.ok(risk, "the risk manager must have voted");
+  assert.ok(!risk.issues.some((i) => i.includes("exceeds max")),
+    "a SELL must not be penalised for the current exposure or position size, got: " + JSON.stringify(risk.issues));
+  assert.equal(risk.approve, true);
+});
+
+test("council: a BUY is still penalised by the risk manager for the current exposure", async () => {
+  const council = createCouncil({ maxPositionPct: 20, maxExposurePct: 85 });
+  const decision = {
+    action: "BUY", symbol: "MSFT", price: 531.43, quantity: 5,
+    reason: "Momentum setup with positive MACD histogram and price above the moving average",
+  };
+  const ctx = {
+    totalEquity: EQUITY, currentExposurePct: 87.2,
+    orderValueKrw: Math.round(531.43 * 5 * FX),
+    technicals: { rsi14: 50, macd: { histogram: 0.2 }, lastClose: 531.43 },
+    regime: "neutral", intelligence: { vix: 18 },
+  };
+  const r = await council.evaluate(decision, ctx);
+  const risk = r.votes.find((v) => v.role === "risk_manager");
+  assert.ok(risk.issues.some((i) => i.includes("Current exposure")),
+    "a BUY into an over-exposed book must be penalised, got: " + JSON.stringify(risk.issues));
+});
+
 test("council: a small order in KRW terms is not flagged", async () => {
   const council = createCouncil({ constitutionHardLimits: { maxSinglePositionPct: 15, maxSingleOrderKrw: 5_000_000 } });
   const decision = {

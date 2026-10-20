@@ -36,6 +36,24 @@ const DEFAULTS = Object.freeze({
 });
 
 /**
+ * Resolve the order value in KRW.
+ *
+ * The decision price is in the LISTING currency (USD for US symbols) while
+ * every limit here is denominated in KRW. The runner supplies the converted
+ * value in ctx.orderValueKrw; without it the checks compared dollars with KRW
+ * limits and mis-measured every US order by ~1330x.
+ */
+function resolveOrderValueKrw(decision, ctx) {
+  if (ctx && ctx.orderValueKrw != null && Number(ctx.orderValueKrw) > 0) {
+    return Number(ctx.orderValueKrw);
+  }
+  if (decision && decision.price && decision.quantity) {
+    return (Number(decision.price) || 0) * (Number(decision.quantity) || 0);
+  }
+  return 0;
+}
+
+/**
  * Constitution Hard Limits — inviolable checks that run BEFORE council voting.
  * Any violation results in immediate rejection regardless of council consensus.
  * These enforce the absolute boundaries defined in constitution.yaml §1.
@@ -53,16 +71,7 @@ function checkConstitutionHardLimits(decision, ctx, limits) {
   var violations = [];
   if (!limits || !decision || decision.action === "HOLD") return violations;
 
-  // [2026-10-20] The decision price is in the LISTING currency (USD for US
-  // symbols) while every hard limit here is denominated in KRW. The runner
-  // supplies the converted value in ctx.orderValueKrw; without it the checks
-  // compared dollars against KRW limits and never fired for US orders.
-  var orderValueKrw = 0;
-  if (ctx && ctx.orderValueKrw != null && Number(ctx.orderValueKrw) > 0) {
-    orderValueKrw = Number(ctx.orderValueKrw);
-  } else if (decision.price && decision.quantity) {
-    orderValueKrw = (Number(decision.price) || 0) * (Number(decision.quantity) || 0);
-  }
+  var orderValueKrw = resolveOrderValueKrw(decision, ctx);
 
   // Position size as % of equity.
   // [2026-10-20] This limit describes the position a BUY would OPEN, so it
@@ -183,16 +192,21 @@ function createCouncil(options = {}) {
     const issues = [];
     let score = 0.7;
 
-    if (ctx.totalEquity > 0 && decision.price && decision.quantity) {
-      const orderValue = decision.price * decision.quantity;
-      const positionPct = (orderValue / ctx.totalEquity) * 100;
+    // [2026-10-20] The position-size and current-exposure concerns describe
+    // the risk a BUY would ADD. Penalising a SELL for them made the bot
+    // refuse to trim the oversized positions that were blocking every new
+    // entry in the first place. The order value is read in KRW, not in the
+    // listing currency.
+    const _orderValueKrw = resolveOrderValueKrw(decision, ctx);
+    if (decision.action === "BUY" && ctx.totalEquity > 0 && _orderValueKrw > 0) {
+      const positionPct = (_orderValueKrw / ctx.totalEquity) * 100;
       if (positionPct > cfg.maxPositionPct) {
         issues.push("Position " + positionPct.toFixed(1) + "% exceeds max " + cfg.maxPositionPct + "%");
         score -= 0.4;
       }
     }
 
-    if (ctx.currentExposurePct != null && ctx.currentExposurePct > cfg.maxExposurePct) {
+    if (decision.action === "BUY" && ctx.currentExposurePct != null && ctx.currentExposurePct > cfg.maxExposurePct) {
       issues.push("Current exposure " + ctx.currentExposurePct.toFixed(1) + "% exceeds max " + cfg.maxExposurePct + "%");
       score -= 0.3;
     }
