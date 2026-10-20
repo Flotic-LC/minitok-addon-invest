@@ -33,7 +33,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "admin-image.tar.gz,runner.js,docker-compose.production.yml,minitok.yml,src/"
+          source: "admin-image.tar.gz,runner.js,Dockerfile,.dockerignore,package.json,package-lock.json,docker-compose.production.yml,minitok.yml,goals.json,universe.json,src/"
           target: "/opt/minitok/addons/invest/"
 
       - name: Restart containers
@@ -45,5 +45,11 @@ jobs:
           script: |
             cd /opt/minitok/addons/invest
             docker load < admin-image.tar.gz
-            docker compose -f docker-compose.production.yml up -d --no-build invest-bot invest-admin
+            # The runner runs from its image, so the source that was just
+            # copied has to be built into it. `docker compose up --no-build`
+            # would keep the previous image and the new code would never
+            # run — the container would come back on the old code. deploy.sh
+            # rebuilds, recreates and health-checks in one step.
+            bash scripts/deploy.sh
+            docker compose -f docker-compose.production.yml up -d --no-build invest-admin
             rm -f admin-image.tar.gz

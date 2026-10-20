@@ -1533,6 +1533,12 @@ const entryPrices = new Map(); // symbol -> last BUY fill price
 // gains cannot mask trade losses), and seeding entryPrices would flip that
 // meaning.
 const brokerBasisPrices = new Map(); // symbol -> broker average purchase price
+// [2026-10-21] Symbols the broker refuses outright — a 3x leveraged ETF
+// needs a prior agreement the account does not have, so every order for it
+// comes back "prerequisite-required". The rejection is permanent for the
+// account, so it is remembered (and persisted with the watchlist) instead of
+// the bot rediscovering the symbol every planning cycle.
+const brokerRejectedSymbols = new Set();
 const symbolPerformance = new Map(); // symbol -> { trades, wins, losses, totalPnl }
 
 const SYMBOL_PERF_MAX_SIZE = 200;
@@ -4414,6 +4420,22 @@ async function _executeDecisionInner(decision, sym) {
   // [self-audit] Track broker-side rejections for Layer 1 execution_errors_high rule
   if (!result.ok) {
     try { selfAudit.recordExecutionError(); } catch {}
+    // [2026-10-21] The broker refuses some securities outright — a 3x
+    // leveraged ETF needs a prior agreement the account does not have. Every
+    // attempt at such a symbol is a rejected order and a wasted decision, so
+    // the broker's own answer retires the symbol from the watchlist instead
+    // of the bot rediscovering it every planning cycle.
+    if (result.code === "prerequisite-required" && input.symbol) {
+      const _evictSym = String(input.symbol).toUpperCase();
+      try {
+        brokerRejectedSymbols.add(_evictSym);
+        if (universe.remove(_evictSym)) {
+          console.log("[exec] Removed " + _evictSym + " from the watchlist: the broker refuses it (prerequisite-required)");
+          try { journalEntry({ type: "UNIVERSE_EVICTED", symbol: _evictSym, reason: "prerequisite-required" }); } catch {}
+          try { _persistUniverse(); } catch {}
+        }
+      } catch {}
+    }
   } else {
     // [FIX F7.3] Record successful order value in safety (post-success, not pre-check)
     try { if (tools._safety && typeof tools._safety.recordOrderSuccess === "function") tools._safety.recordOrderSuccess(input); } catch (e) {}
@@ -4568,8 +4590,24 @@ async function start() {
       if (!fs.existsSync(filePath)) return null;
       const raw = fs.readFileSync(filePath, "utf8");
       const data = JSON.parse(raw);
+      // [2026-10-21] Symbols the broker refuses outright are remembered in
+      // the same file so a restart does not put them back on the watchlist.
+      if (Array.isArray(data.rejected)) {
+        for (const r of data.rejected) {
+          const rs = String(r).trim().toUpperCase();
+          if (rs) brokerRejectedSymbols.add(rs);
+        }
+      }
       if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-        return data.symbols.map(function(s) { return String(s).trim().toUpperCase(); }).filter(Boolean);
+        return data.symbols.map(function(s) { return String(s).trim().toUpperCase(); })
+          .filter(function(s) {
+            if (!s) return false;
+            if (brokerRejectedSymbols.has(s)) {
+              console.log("[universe] Dropped " + s + " — the broker refuses it");
+              return false;
+            }
+            return true;
+          });
       }
     } catch (e) {
       console.error("[universe] Failed to load " + filePath + ": " + e.message);
@@ -4632,6 +4670,9 @@ async function start() {
       if (!universe) return;
       fs.writeFileSync(UNIVERSE_PERSIST_PATH, JSON.stringify({
         symbols: Array.from(universe.symbols),
+        // [2026-10-21] Symbols the broker refuses — kept so a restart or a
+        // discovery scan does not put an untradeable symbol back.
+        rejected: Array.from(brokerRejectedSymbols),
         updatedAt: new Date().toISOString()
       }, null, 2));
     } catch (e) {
@@ -4664,6 +4705,13 @@ async function start() {
       }
       const isJP = /^\d{4}$/.test(s), isUS = /^[A-Z][A-Z.]{0,5}$/.test(s);
       if (!isJP && !isUS) { console.log("[universe] Rejected invalid: " + s); return false; }
+      // [2026-10-21] The broker refused this symbol before (a 3x leveraged
+      // ETF needs a prior agreement the account does not have). Putting it
+      // back would only produce another rejected order.
+      if (brokerRejectedSymbols.has(s)) {
+        console.log("[universe] Rejected (the broker refuses it): " + s);
+        return false;
+      }
       this.symbols.add(s); this.allowed.add(s);
       console.log("[universe] Added " + s + " (total: " + this.symbols.size + ")");
       if (wsClient && isUS) {

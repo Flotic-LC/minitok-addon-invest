@@ -29,6 +29,16 @@ trade-journal.json
 .knowledge.json
 .intelligence-state.json
 
+# Deploy bundles and ad-hoc backups — the image does not need them and
+# `COPY . .` would carry them into every layer.
+*.tar
+*.tar.gz
+*.bak
+*.bak-*
+*.new
+runner.js.test
+deploy-*.sh
+
 # Test
 test/
 coverage/
