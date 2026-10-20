@@ -4672,7 +4672,10 @@ async function start() {
     // [Phase C / L4.5] KILLSWITCH GATE — block all BUY/SELL if halted
     if (decision && (decision.action === "BUY" || decision.action === "SELL")) {
       try {
-        var _ksMetrics = { apiFailures: consecutiveAuthFailures, aiFailures: aiConsecutiveFailures };
+        // [2026-10-21] The side is passed so the kill-switch can tell an
+        // entry-side limit (exposure) from a genuine halt condition: a SELL
+        // reduces exposure and must never be blocked by the exposure cap.
+        var _ksMetrics = { apiFailures: consecutiveAuthFailures, aiFailures: aiConsecutiveFailures, side: decision.action };
         try {
           var _ksPortfolio = await fetchPortfolioContext();
           var _ksEquity = computeTotalEquityKrw(_ksPortfolio);
@@ -4680,8 +4683,11 @@ async function start() {
           // holdings) while equity is KRW, so summing it directly understated
           // the exposure by ~1330x. Use the KRW valuation the position now
           // carries so the exposure limit is measured in the same unit.
-          var _ksInvested = (_ksPortfolio.positions || []).reduce(function(s, p) { return s + (Number(p.valueKrw) || marketValueKrw(p)); }, 0);
-          _ksMetrics.totalExposurePct = _ksEquity > 0 ? (_ksInvested / _ksEquity) * 100 : 0;
+          // [2026-10-21] The exposure metric is only meaningful for an entry.
+          if (decision.action === "BUY") {
+            var _ksInvested = (_ksPortfolio.positions || []).reduce(function(s, p) { return s + (Number(p.valueKrw) || marketValueKrw(p)); }, 0);
+            _ksMetrics.totalExposurePct = _ksEquity > 0 ? (_ksInvested / _ksEquity) * 100 : 0;
+          }
           // Daily loss % from target engine baseline vs current equity
           // [2026-10-20 P0] A single instantaneous reading must not latch the
           // kill-switch. The breach has to persist across consecutive
@@ -4739,7 +4745,9 @@ async function start() {
           if (_lastVix != null) _ksMetrics.vix = _lastVix;
         } catch {}
         var _ksResult = killswitch.check(_ksMetrics);
-        if (_ksResult.halted) {
+        // `blocked` covers both a latched halt and a per-order soft block
+        // (the exposure cap, which applies to new BUYs only).
+        if (_ksResult.blocked || _ksResult.halted) {
           console.log("[killswitch] BLOCKED " + decision.action + " " + (decision.symbol || "") + " — " + _ksResult.reason);
           journalEntry({ type: "KILLSWITCH_BLOCK", symbol: decision.symbol, action: decision.action, reason: _ksResult.reason });
           metrics.counter("killswitch_blocks");
