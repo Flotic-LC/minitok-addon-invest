@@ -25,6 +25,20 @@ const SCHEMA = Object.freeze({
   PROFUNDO_BASE_URL:   { type: "string", default: "https://api.profundoai.com/v1" },
   PROFUNDO_MODEL:      { type: "string", default: "gpt-6-astra" },
   MINITOK_CLIENT_ROOT: { type: "string" },
+  // [2026-10-21 7단계] The trading add-on's commercial entitlement.
+  // MINITOK_ENTITLEMENT_REQUIRED arms the gate: when it is true the add-on
+  // refuses to trade without a server-verified entitlement for this
+  // installation and exits with a message the operator can act on. The rest
+  // describe where the server-issued artifact lives and which installation
+  // it has to belong to.
+  MINITOK_ENTITLEMENT_REQUIRED: { type: "boolean", default: false },
+  MINITOK_SERVER_URL: { type: "string" },
+  MINITOK_INSTALLATION_TOKEN: { type: "string", secret: true },
+  MINITOK_ENTITLEMENT_PATH: { type: "string" },
+  MINITOK_ENTITLEMENT: { type: "string", secret: true },
+  MINITOK_INSTALLATION_ID: { type: "string" },
+  MINITOK_ADDON_MIN_PLAN_ID: { type: "string", default: "level1" },
+  MINITOK_ENTITLEMENT_GRACE_MS: { type: "string", default: "0" },
 
   // --- Operational modes ---
   DRY_RUN:             { type: "boolean", default: true },

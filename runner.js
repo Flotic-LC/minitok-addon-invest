@@ -5007,7 +5007,51 @@ async function _executeDecisionInner(decision, sym) {
 // --- 6. WebSocket event loop ---
 let wsClient = null;
 
+/**
+ * Verify this installation's entitlement against the minitok server.
+ *
+ * [2026-10-21 7단계] The add-on trades a real brokerage account, so it may
+ * not trade without a server-verified entitlement. The server is the only
+ * authority: a plan id that was handed to the add-on is not evidence, and
+ * the local checks are defence in depth for the case where the server cannot
+ * be reached.
+ */
+function verifyEntitlementForThisInstallation() {
+  const { verifyEntitlement, loadArtifact } = require("./src/auth/entitlement");
+  const artifact = loadArtifact({
+    path: process.env.MINITOK_ENTITLEMENT_PATH,
+    entitlement: process.env.MINITOK_ENTITLEMENT,
+  });
+  return verifyEntitlement({
+    serverUrl: process.env.MINITOK_SERVER_URL,
+    token: process.env.MINITOK_INSTALLATION_TOKEN,
+    entitlement: artifact,
+    expectedInstallationId: process.env.MINITOK_INSTALLATION_ID,
+    minPlanId: process.env.MINITOK_ADDON_MIN_PLAN_ID,
+    graceMs: Number(process.env.MINITOK_ENTITLEMENT_GRACE_MS || 0),
+  });
+}
+
 async function start() {
+  // [2026-10-21 7단계] The entitlement gate.
+  //
+  // The gate is armed with MINITOK_ENTITLEMENT_REQUIRED=true. It is off by
+  // default because the add-on has no commercial customer yet: arming it
+  // without an issued entitlement would stop a running bot for no reason.
+  // When it is armed, the add-on refuses to trade and exits with a message
+  // the operator can act on.
+  if (String(process.env.MINITOK_ENTITLEMENT_REQUIRED || "false").toLowerCase() === "true") {
+    const _ent = await verifyEntitlementForThisInstallation();
+    if (!_ent.allowed) {
+      console.error("[entitlement] FATAL: the trading add-on is not entitled to run - " + _ent.message);
+      console.error("[entitlement] state=" + _ent.state + " - sign in again with the account that owns this installation, check the subscription, or contact support.");
+      process.exit(1);
+    }
+    console.log("[entitlement] OK: plan=" + _ent.plan + " installation=" + _ent.installationId + " expires=" + (_ent.expiresAt || "n/a"));
+  } else {
+    console.log("[entitlement] The commercial gate is not armed (MINITOK_ENTITLEMENT_REQUIRED is not true). The add-on runs without an entitlement check.");
+  }
+
   console.log("[runner] Starting autonomous trading bot...");
   const proj = targetEngine.project();
   console.log("[runner] Phase: " + proj.phase + " (" + proj.phaseName + "), dryRun: " + proj.dryRun + ", target: " + proj.baseTargetPct + "%");
