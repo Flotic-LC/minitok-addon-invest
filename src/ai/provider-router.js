@@ -224,7 +224,17 @@ function createProviderRouter(options = {}) {
     const data = await resp.json();
     const choice = data.choices && data.choices[0];
     if (!choice || !choice.message) throw new Error("No message in response");
-    return { message: choice.message, finishReason: choice.finish_reason, latency: now() - t0 };
+    // [2026-10-21 8단계] The provider's own token report was parsed and
+    // thrown away. It is the only number that says what a decision cost,
+    // and the unit economics are built on it. A failed counter must never
+    // break a decision.
+    const usage = data.usage || null;
+    try {
+      const ue = require("../ops/unit-economics");
+      const ledger = ue.usageLedger();
+      if (ledger) ledger.llm(usage, { model: provider.model, provider: provider.name });
+    } catch (e) { /* the cost ledger must not break the decision path */ }
+    return { message: choice.message, finishReason: choice.finish_reason, latency: now() - t0, usage: usage };
   }
 
   // [P3-AI / P6-FIX] Sliding-window parse-failure tracking.

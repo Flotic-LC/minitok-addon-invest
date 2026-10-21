@@ -200,6 +200,14 @@ async function tossRequest(path, { method = "GET", body, token, accountSeq, time
     const err = normalizeApiError(resp.statusCode, responseBody || unwrapped, resp.rawText);
     throw err;
   }
+  // [2026-10-21 8단계] The broker API calls are the second largest running
+  // cost of the bot and nothing counted them. The path is the operation.
+  // A failed counter must never break a broker call.
+  try {
+    const ue = require("./ops/unit-economics");
+    const ledger = ue.usageLedger();
+    if (ledger) ledger.broker(path, { method: method, status: resp.statusCode });
+  } catch (e) { /* the cost ledger must not break the broker path */ }
   return { status: resp.statusCode, headers: resp.headers, body: unwrapped, raw: responseBody };
 }
 

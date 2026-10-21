@@ -7957,6 +7957,9 @@ function dumpRunnerState() {
   try {
     var state = {
       pendingOrders: Array.from(pendingOrders.entries()),
+    // [2026-10-21 8단계] The month's usage, so a restart does not reset the
+    // cost of the account to zero.
+    usageLedger: usageLedger.snapshot(),
       // [2026-10-21 5단계] The idempotency claims and the execution-quality
       // counters survive a restart. Without them a restart inside the
       // idempotency window could re-submit an order that had already been
@@ -8080,6 +8083,15 @@ function restoreRunnerState() {
         pendingOrders.set(po[0], po[1]);
       }
       console.log("[state] Restored " + raw.pendingOrders.length + " pending orders");
+    }
+    // [2026-10-21 8단계] The usage counters. The month's cost must survive a
+    // restart, otherwise the report always starts from zero.
+    try {
+      if (raw.usageLedger && usageLedger.restore(raw.usageLedger)) {
+        console.log("[state] Restored the usage ledger for " + usageLedger.account + " (month " + usageLedger.month + ")");
+      }
+    } catch (e) {
+      console.warn("[state] Could not restore the usage ledger: " + (e && e.message));
     }
     // [2026-10-21 5단계] The idempotency claims and the execution-quality
     // counters. A restart inside the idempotency window must not re-submit
@@ -8242,6 +8254,13 @@ function restoreRunnerState() {
 }
 
 // Restore state before starting
+// [2026-10-21 8단계] The usage ledger, opened before the state is restored
+// so the restored counters land in it. The account is the installation the
+// add-on belongs to; the broker's own credentials are the fallback.
+const { createUsageLedger, setUsageLedger } = require("./src/ops/unit-economics");
+const usageLedger = createUsageLedger({ account: process.env.MINITOK_INSTALLATION_ID || process.env.TOSS_CLIENT_ID || "unknown" });
+setUsageLedger(usageLedger);
+
 restoreRunnerState();
 
 // [Stability] Periodic state dump every 5 minutes for crash recovery
