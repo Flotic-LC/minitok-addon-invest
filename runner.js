@@ -4889,6 +4889,20 @@ async function _executeDecisionInner(decision, sym) {
     return;
   }
 
+  // [2026-10-21 9단계] The capital ramp. A ramped deployment trades a
+  // fraction of the capital: the order is scaled down AFTER the sizing, so
+  // the exposure checks - which ran on the full equity - stay on the
+  // conservative side.
+  if (capitalScale < 1) {
+    const _before = Number(input.quantity) || 0;
+    const _after = Math.max(1, Math.floor(_before * capitalScale));
+    if (_after < _before) {
+      console.log("[exec] Ramped " + input.symbol + " " + _before + " -> " + _after + " shares (capital " + (capitalScale * 100).toFixed(0) + "%)");
+      journalEntry({ type: "ORDER_RAMPED", symbol: input.symbol, from: _before, to: _after, capitalScale: capitalScale });
+      input.quantity = _after;
+    }
+  }
+
   // [2026-10-21 5단계] The idempotency guard. The claim is taken BEFORE the
   // submission, so a retry after a timeout, a broker 500 or a lost response
   // is refused instead of placing the same order twice.
@@ -8333,6 +8347,10 @@ const paperLedger = promotion.createPaperLedger({});
 let tradingMode = promotion.MODES.PAPER;
 let tradingModeReason = "not resolved yet";
 let capitalFraction = 0;
+// [2026-10-21 9단계] The capital scale. In paper the simulation uses the
+// whole equity - the ramp limits the money at RISK, not the size of the
+// experiment. Live and ramped trade a fraction of it.
+let capitalScale = 1;
 try {
   const _promoFile = path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "promotion.json");
   let _promo = null;
@@ -8347,7 +8365,8 @@ try {
   tradingMode = _mode.mode;
   tradingModeReason = _mode.reason;
   capitalFraction = promotion.capitalFraction(_promo ? _promo.stage : 0);
-  console.log("[mode] trading mode: " + tradingMode + " (capable of " + _mode.capable + ", capital " + (capitalFraction * 100).toFixed(0) + "%) - " + tradingModeReason);
+  capitalScale = (tradingMode === promotion.MODES.LIVE || tradingMode === promotion.MODES.RAMPED) ? Math.max(0.01, capitalFraction) : 1;
+  console.log("[mode] trading mode: " + tradingMode + " (capable of " + _mode.capable + ", capital " + (capitalScale * 100).toFixed(0) + "%) - " + tradingModeReason);
   if (_mode.capable === "live" && tradingMode !== "live") {
     console.log("[mode] NOT LIVE: " + tradingModeReason + ". Paper results are recorded and a promotion is required before any order reaches the broker.");
   }
