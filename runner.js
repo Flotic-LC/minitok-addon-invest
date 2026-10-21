@@ -1899,6 +1899,58 @@ const atrStopPrices = new Map(); // symbol -> hard stop price (entry - N*ATR)
 // made. The spread is a SUBSET of the booked execution cost (the fill is at
 // the bid/ask), so it is recorded as an estimate, never charged twice.
 const entryCostMeta = new Map(); // symbol -> { signalPrice, fxRate, apiDecisions, spreadBps }
+
+// [2026-10-21 3단계] The measured strategy state.
+//
+// The published measurement (the backtest result the cron writes into the
+// durable state volume) carries two things the live bot needs: the blocklist
+// of entry signals that lose money once the round-trip cost is paid, and the
+// size multiplier for the signals that survive. The runner applies both, so
+// the measurement actually changes what is traded instead of being another
+// number in a report.
+//
+// Fail-closed: if the measurement is missing, invalid, or carries no valid
+// trade set then NOTHING is blocked and NOTHING is resized. A broken
+// measurement can never silently stop the bot from trading.
+let _strategyMeasurement = { mtimeMs: 0, blocked: [], multipliers: {} };
+
+function refreshStrategyMeasurement() {
+  try {
+    const p = path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "backtest-result.json");
+    let st;
+    try { st = fs.statSync(p); } catch (e) { return; }
+    if (st.mtimeMs === _strategyMeasurement.mtimeMs) return;
+    const r = JSON.parse(fs.readFileSync(p, "utf8"));
+    const ta = r && r.tradeAnalytics;
+    const valid = r && r.meta && r.meta.validation === "ok" && r.meta.confidence !== "none"
+      && ta && ta.valid && ta.totalTrades > 0;
+    if (!valid) {
+      _strategyMeasurement = { mtimeMs: st.mtimeMs, blocked: [], multipliers: {} };
+      console.log("[strategy-measurement] the published measurement is not usable — no signals blocked, no resizing");
+      return;
+    }
+    _strategyMeasurement = {
+      mtimeMs: st.mtimeMs,
+      blocked: ((ta.blocklist && ta.blocklist.blocked) || []).map(function (b) { return b.strategy; }),
+      multipliers: ta.edgeMultipliers || {},
+    };
+    console.log("[strategy-measurement] applied from " + ta.totalTrades + " measured trades: blocking "
+      + (_strategyMeasurement.blocked.join(", ") || "(none)") + "; multipliers " + JSON.stringify(_strategyMeasurement.multipliers));
+  } catch (e) {
+    // No usable measurement: keep the defaults.
+  }
+}
+
+function blockedStrategiesNow() {
+  refreshStrategyMeasurement();
+  return _strategyMeasurement.blocked;
+}
+
+function edgeMultiplierNow(strategy) {
+  refreshStrategyMeasurement();
+  if (!strategy) return 1;
+  return Number(_strategyMeasurement.multipliers[strategy]) || 1;
+}
 // [2026-10-21] The bid/ask spread observed on the last orderbook fetch for a
 // symbol. The orderbook was already being fetched on every tick and the
 // spread was already being computed — it was only used to trip the
@@ -3027,7 +3079,7 @@ async function askAI(marketData, opts) {
   signalEngine: (function() {
     try {
       if (!marketData || !marketData.symbol || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol) });
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol), blockedStrategies: blockedStrategiesNow() });
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -3120,7 +3172,7 @@ async function askAI(marketData, opts) {
   signalEngine: (function() {
     try {
       if (!marketData || !marketData.symbol || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol) });
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol), blockedStrategies: blockedStrategiesNow() });
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -4098,6 +4150,11 @@ async function enforcePositionSizing(input, strategy, decision) {
     const sizing = positionSizer.sizePosition({
       equity: orchScaledEquity, price: input.price, atr, fxRate,
       capEquity: totalEquity, maxPositionPct: effectiveMaxPct,
+      // [2026-10-21 3단계] The size follows the measured edge of the signal
+      // that produced this order: the risk budget already reflects the
+      // volatility (the ATR), and this reflects the probability of being
+      // right. It defaults to 1.0 when there is no measurement.
+      edgeMultiplier: edgeMultiplierNow(input.strategy),
     });
     if (sizing.qty === 0) return { ok: false, reason: "positionSizer: " + sizing.reason };
     if (sizing.qty !== input.quantity) {
@@ -4520,6 +4577,9 @@ async function _executeDecisionInner(decision, sym) {
   const input = {
     operation: "create_order", target: { accountSeq: orderAccountSeq },
     symbol: decision.symbol, side: decision.action, orderType: "LIMIT",
+    // [2026-10-21 3단계] The strategy that produced this decision, so the
+    // position size can follow that signal's measured edge.
+    strategy: decision.strategy || null,
     quantity: Number(decision.quantity) || 1, price: adjustedPrice,
     // [P3-4 Fix] Propagate strategy + decision source through order lifecycle
     // so the fill handler can attribute P&L correctly via attributionEngine.
@@ -5595,7 +5655,7 @@ async function start() {
           var _autoToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
           var _autoCandleCtx = await fetchCandleContext(_autoToken, wsSymbol, "1d");
           var _autoPf2 = await fetchPortfolioContext();
-          var _sig = _autoCandleCtx ? generateSignal(_autoCandleCtx, _autoPf2.positions && _autoPf2.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(wsSymbol).toUpperCase(); }), { market: detectMarket(wsSymbol) }) : null;
+          var _sig = _autoCandleCtx ? generateSignal(_autoCandleCtx, _autoPf2.positions && _autoPf2.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(wsSymbol).toUpperCase(); }), { market: detectMarket(wsSymbol), blockedStrategies: blockedStrategiesNow() }) : null;
           console.log("[auto-trade] " + wsSymbol + " signal=" + (_sig ? _sig.action + " score=" + _sig.score + " strategy=" + _sig.strategy : "null"));
           if (_sig && _sig.action === "BUY" && _sig.score >= 1 && _sig.strategy) {
             var _autoQty = 1;
@@ -5912,7 +5972,7 @@ async function start() {
                 try {
                   var _restToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
                   var _restCandleCtx = await fetchCandleContext(_restToken, marketData.symbol, "1d");
-                  var _restSig = _restCandleCtx ? generateSignal(_restCandleCtx, null, { market: detectMarket(marketData.symbol) }) : null;
+                  var _restSig = _restCandleCtx ? generateSignal(_restCandleCtx, null, { market: detectMarket(marketData.symbol), blockedStrategies: blockedStrategiesNow() }) : null;
                   if (_restSig && _restSig.action === "BUY" && _restSig.score >= 1 && _restSig.strategy) {
                     var _restQty = 1;
                     try {

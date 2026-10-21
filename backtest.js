@@ -18,6 +18,11 @@ const path = require("node:path");
 const { createSafety } = require("./src/agent/safety");
 const { validateCandleData, validateCandle, buildResultMeta } = require("./src/strategy/candle-validation");
 const { costProfile, applyExecutionCosts, roundTripCostPct, PROFILE_NAMES } = require("./src/agent/cost-model");
+// [2026-10-21 3단계] The strategy analysis: the per-signal, per-confidence,
+// per-holding-period, per-symbol, per-regime, per-entry-reason and
+// per-exit-reason breakdowns, and the blocklist of signals proven to lose
+// money after costs.
+const { analyzeTrades, deriveSignalBlocklist, deriveEdgeMultipliers } = require("./src/strategy/trade-analytics");
 
 // [P2-10 Integration] Knowledge store — feed backtest results for self-improvement
 const { createKnowledgeStore } = require("./src/strategy/knowledge-store");
@@ -45,10 +50,19 @@ function parseArgs(argv) {
     // [P2-10] Knowledge store integration
     knowledgeFeed: false,    // --knowledge-feed: write results to .knowledge.json
     knowledgePath: null,     // --knowledge-path <file>: custom knowledge store path
+    // [2026-10-21 3단계] --analysis <previous-result.json>: apply the previous
+    // measurement's blocklist (the entry signals proven to lose money after
+    // costs) and its edge multipliers (the size adjustment for the signals
+    // that survive). This is what makes the improvement loop closed: measure,
+    // block the losers, re-measure. The file is read EXPLICITLY, never
+    // inherited from the environment, so a measurement always measures the
+    // same thing unless it is told otherwise.
+    analysis: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--data") args.data = argv[++i];
+    else if (a === "--analysis") args.analysis = argv[++i];
     else if (a === "--initial") args.initial = Number(argv[++i]);
     else if (a === "--stop-loss") args.stopLoss = Number(argv[++i]);
     else if (a === "--take-profit") args.takeProfit = Number(argv[++i]);
@@ -183,6 +197,44 @@ function buildCtx(closes, opts) {
   };
 }
 
+/**
+ * [2026-10-21 3단계] Classify the exit so the round trip can be attributed to
+ * the reason it was closed. The signal engine reports the exit as a single
+ * "risk_exit" strategy whether it was a stop-loss or a take-profit, and the
+ * two have completely different economics: a stop-loss is the cost of being
+ * wrong, a take-profit is the point of the trade.
+ */
+function classifyExit(signal) {
+  if (!signal || signal.action !== "SELL") return null;
+  const reasons = Array.isArray(signal.reasons) ? signal.reasons : [];
+  for (const r of reasons) {
+    if (r.indexOf("stop-loss") === 0) return "stop_loss";
+    if (r.indexOf("take-profit") === 0) return "take_profit";
+  }
+  if (signal.strategy === "trend_exit") return "trend_exit";
+  if (signal.strategy === "risk_exit") return "risk_exit_other";
+  return signal.strategy || "unknown";
+}
+
+/**
+ * [2026-10-21 3단계] The regime a trade was opened in. The runner has a
+ * hidden-Markov directional regime, but the backtest does not run the HMM,
+ * so the regime here is derived from the same information the HMM uses: the
+ * 20-day trend and the ATR. The P&L of a strategy has to be readable against
+ * the market it was traded in — a mean reversion that only works in a
+ * ranging tape looks like a good strategy until you notice the range.
+ */
+function classifyRegime(ctx) {
+  const c20 = Number(ctx && ctx.changePct20d);
+  const atrPct = ctx && ctx.atr14 && ctx.lastClose ? (ctx.atr14 / ctx.lastClose) * 100 : null;
+  if (Number.isFinite(c20)) {
+    if (c20 > 2) return "bull";
+    if (c20 < -2) return "bear";
+  }
+  if (atrPct != null && atrPct > 3) return "high_vol";
+  return "sideways";
+}
+
 function decide(closes, portfolio, symbol, opts) {
   const ctx = buildCtx(closes, opts);
   const pos = portfolio.positions.get(symbol);
@@ -195,6 +247,14 @@ function decide(closes, portfolio, symbol, opts) {
     // comparison runs on the same trade set in all three scenarios.
     market: (opts && opts.market) || "US",
     costConfig: costProfile("base", buildCostConfigOverrides(opts)),
+    // [2026-10-21 3단계] The measured blocklist and the edge multipliers are
+    // passed IN, never read from the environment: a backtest that picked up
+    // the live blocklist would stop measuring the strategies it is supposed to
+    // be judging, and the derived blocklist would oscillate as blocked
+    // strategies disappeared from the measurement. The comparison run
+    // therefore applies the PREVIOUS measurement explicitly (--analysis), and
+    // the default run measures everything.
+    blockedStrategies: (opts && opts.blockedStrategies) || [],
   });
   return {
     action: signal.action,
@@ -210,6 +270,14 @@ function decide(closes, portfolio, symbol, opts) {
     // gross-vs-net classification can attribute a round trip to the entry
     // strategy that opened it.
     strategy: signal.strategy || null,
+    // [2026-10-21 3단계] The raw reason list, the exit classification and the
+    // regime, so every trade can be attributed to the signal that opened it
+    // and to the reason it was closed. Without this the only performance
+    // number available is one aggregate return, which cannot say which
+    // signal is worth taking.
+    reasons: Array.isArray(signal.reasons) ? signal.reasons : [],
+    exitKind: classifyExit(signal),
+    regime: classifyRegime(ctx),
   };
 }
 
@@ -383,7 +451,12 @@ function runBacktest(candles, opts) {
         // at all, which is the same failure shape as the zero-price dataset.
         const _probe = applySlippage(price, "BUY", 0, avgVolume, opts);
         const _perUnit = _probe.effectiveCost || price;
-        const intendedQty = Math.max(1, Math.floor(opts.maxOrderValueKrw / _perUnit));
+        // [2026-10-21 3단계] The loss-probability adjustment is applied to the
+        // size, not only to the entry decision: a signal whose measured
+        // profit factor is below 1 gets a smaller position. The multiplier
+        // comes from the PREVIOUS measurement (--analysis) and defaults to 1.
+        const _edgeMult = (opts && opts.edgeMultipliers && decision.strategy && Number(opts.edgeMultipliers[decision.strategy])) || 1;
+        const intendedQty = Math.max(1, Math.floor((opts.maxOrderValueKrw * _edgeMult) / _perUnit));
         const slip = applySlippage(price, "BUY", intendedQty * price, avgVolume, opts);
         let qty = Math.max(1, Math.floor(intendedQty * slip.fillRate));
         const costPerShare = slip.effectiveCost;
@@ -415,6 +488,15 @@ function runBacktest(candles, opts) {
             portfolio.positions.set(symbol, {
               qty: qty, avgPrice: costPerShare, avgSignalPrice: price,
               entryCostPerShare: entryCostPerShare, strategy: decision.strategy || "standard",
+              // [2026-10-21 3단계] The signal that opened the position is kept
+              // on the position so the round trip can be attributed to it when
+              // it closes. This is what makes "which entry signal makes money
+              // after costs" answerable at all.
+              entryScore: decision.score,
+              entryReasons: decision.reasons,
+              entryRegime: decision.regime,
+              entryBarIndex: typeof idx !== "undefined" ? idx : null,
+              entryDate: date,
             });
           }
           safety.recordPositionOpen(symbol);
@@ -524,6 +606,20 @@ function runBacktest(candles, opts) {
             strategy: _strat,
             exitStrategy: decision.strategy || null,
             reason: decision.reason,
+            // [2026-10-21 3단계] The full attribution of the round trip: the
+            // signal that opened it (strategy, score, the individual evidence
+            // lines, the regime), the classified reason it was closed, and how
+            // long it was held. These are the axes the strategy analysis is
+            // cut along.
+            entryStrategy: _strat,
+            entryScore: pos.entryScore != null ? pos.entryScore : null,
+            entryReasons: Array.isArray(pos.entryReasons) ? pos.entryReasons : [],
+            confidence: pos.entryScore != null ? pos.entryScore : null,
+            regime: pos.entryRegime || decision.regime || null,
+            exitKind: decision.exitKind || null,
+            exitReason: decision.exitKind || decision.strategy || "unknown",
+            holdingBars: (typeof idx !== "undefined" && pos.entryBarIndex != null) ? (idx - pos.entryBarIndex) : null,
+            entryDate: pos.entryDate || null,
           });
         }
       }
@@ -633,6 +729,33 @@ function runBacktest(candles, opts) {
       };
     }),
     roundTripCostPct: Number(roundTripCostPct((opts && opts.market) || "US", buildCostConfig(opts)).toFixed(4)),
+    // [2026-10-21 3단계] The strategy analysis. It is computed from the SAME
+    // trade records as the headline numbers above, so it cannot disagree with
+    // them, and it carries the blocklist of entry signals that are proven to
+    // lose money once the round-trip cost is paid. The blocklist is what
+    // turns this measurement into an actual change in the trading code: the
+    // signal engine refuses those strategies outright.
+    tradeAnalytics: (function () {
+      const _a = analyzeTrades(trades);
+      const _minTrades = (opts && opts.minTradesForBlock) || 15;
+      const _bl = deriveSignalBlocklist(_a, { minTrades: _minTrades });
+      return {
+        totalTrades: _a.totalTrades,
+        valid: _a.valid,
+        overall: _a.overall,
+        byEntryStrategy: _a.byEntryStrategy,
+        byEntryStrategyList: _a.byEntryStrategyList,
+        byExitStrategy: _a.byExitStrategy,
+        byExitReason: _a.byExitReason,
+        byConfidenceBucket: _a.byConfidenceBucket,
+        byHoldingBucket: _a.byHoldingBucket,
+        bySymbol: _a.bySymbol,
+        byRegime: _a.byRegime,
+        byEntryReason: _a.byEntryReason,
+        blocklist: _bl,
+        edgeMultipliers: deriveEdgeMultipliers(_a, { minTrades: _minTrades }),
+      };
+    })(),
     // [2026-10-21] The open positions at the end of the run, marked to the
     // last close. The closed-trade net P&L and the equity return are
     // different numbers — one is realised, the other is the whole account —
@@ -826,6 +949,40 @@ function main() {
   console.log("[backtest] Data validation OK: " + validation.metadata.symbolCount + " symbol(s), "
     + validation.metadata.candleCount + " candles, " + validation.metadata.dataStart
     + " .. " + validation.metadata.dataEnd + ", valid ratio " + validation.metadata.validCandleRatio);
+
+  // [2026-10-21 3단계] Apply the previous measurement, if one was given.
+  //
+  // This is the closed loop: the measurement says which entry signals lose
+  // money after costs, and the next run refuses those signals and sizes the
+  // survivors by their measured edge. It is fail-closed in the same way the
+  // rest of the measurement system is: an analysis whose own validation failed,
+  // or which carries no valid trade set, applies NOTHING. A broken analysis
+  // can never change what is traded.
+  if (args.analysis) {
+    try {
+      const _ap = path.resolve(args.analysis);
+      if (!fs.existsSync(_ap)) {
+        console.warn("[backtest] --analysis file not found (" + _ap + ") — running without the previous measurement");
+      } else {
+        const _prev = JSON.parse(fs.readFileSync(_ap, "utf8"));
+        const _prevMeta = _prev && _prev.meta;
+        const _prevValid = _prevMeta && _prevMeta.validation === "ok" && _prevMeta.confidence !== "none";
+        const _prevTa = _prev && _prev.tradeAnalytics;
+        if (!_prevValid || !_prevTa || !_prevTa.valid) {
+          console.warn("[backtest] The previous measurement is not valid (validation="
+            + (_prevMeta ? _prevMeta.validation : "missing") + ", trades="
+            + (_prevTa ? _prevTa.totalTrades : 0) + ") — NO blocklist and NO size adjustment applied");
+        } else {
+          const _blockedNames = (_prevTa.blocklist && _prevTa.blocklist.blocked || []).map(function (b) { return b.strategy; });
+          args.blockedStrategies = _blockedNames;
+          args.edgeMultipliers = _prevTa.edgeMultipliers || {};
+          console.log("[backtest] Applied the previous measurement: blocking " + (_blockedNames.length ? _blockedNames.join(", ") : "(nothing)") + "; edge multipliers " + JSON.stringify(args.edgeMultipliers));
+        }
+      }
+    } catch (e) {
+      console.warn("[backtest] Failed to read the previous measurement (" + e.message + ") — running without it");
+    }
+  }
 
   const result = runBacktest(candles, args);
 

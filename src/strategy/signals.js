@@ -10,6 +10,32 @@
 
 const { costGate, roundTripCostPct } = require("../agent/cost-model");
 
+/**
+ * [2026-10-21 3단계] The measured blocklist of entry strategies.
+ *
+ * The strategy analysis (src/strategy/trade-analytics.js) measures every
+ * entry signal's net P&L after the round-trip cost and derives the signals
+ * that are proven to lose money. Those signals are refused at the source, so
+ * the losing entry is never placed — this is the change that turns a
+ * measurement into a behaviour.
+ *
+ * The list is read from the environment once, at load time, and is written by
+ * the analysis pipeline rather than by hand. An empty or invalid measurement
+ * produces no blocklist at all, so a broken backtest can never change what
+ * the bot trades.
+ */
+const BLOCKED_STRATEGIES = Object.freeze(
+  String(process.env.SIG_BLOCKED_STRATEGIES || "")
+    .split(",")
+    .map(function (s) { return s.trim(); })
+    .filter(Boolean)
+);
+
+function blockedStrategies(p) {
+  if (p && Array.isArray(p.blockedStrategies)) return p.blockedStrategies;
+  return BLOCKED_STRATEGIES;
+}
+
 // [Tier 2] 수익 극대화 기본값 — 자율성 확보를 위해 보수적 기본값을 대폭 완화.
 // Tier 1 (자본 보호) 장치는 runner.js의 daily hard-stop, AI circuit breaker,
 // UNRESTRICTED_MODE forbidden 등으로 별도 유지됨.
@@ -254,6 +280,20 @@ function entrySignal(ctx, p) {
   if (!strategy && score > 0) {
     strategy = "default_buy";
     reasons.push("default_buy: score=" + score + " (no specific strategy but positive signals)");
+  }
+  // [2026-10-21 3단계] The measured blocklist is applied HERE, at the source.
+  // A strategy that the analysis proved loses money after the round-trip cost
+  // is refused outright, so the losing entry is never proposed, never sized
+  // and never sent to the broker. This is the "identify the losing signal and
+  // block it in the actual code" step: without it, the measurement would just
+  // be another number nobody acts on.
+  const _blocked = blockedStrategies(p);
+  if (strategy && _blocked.indexOf(strategy) >= 0) {
+    return {
+      action: "HOLD", score: 0, strategy: null, costGate: _gate,
+      reasons: [...reasons, "strategy " + strategy + " is blocked by the measured signal analysis (net negative after costs)"],
+      blockedStrategy: strategy,
+    };
   }
   if (score >= p.minScore && strategy) {
     // The gate's verdict is part of the reasoning, so the AI sees how thin

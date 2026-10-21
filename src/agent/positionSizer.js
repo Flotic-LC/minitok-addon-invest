@@ -49,14 +49,29 @@ function sizePosition(input, opts = {}) {
   const atr = input.atr != null ? Number(input.atr) * fx : null;
   let qty, method, stopPrice = null, riskKrw = 0;
 
+  // [2026-10-21 3단계] The loss-probability adjustment.
+  //
+  // The risk budget assumes every trade has the same probability of being
+  // right, and it sizes purely on how far the position can fall — the
+  // volatility. It says nothing about HOW OFTEN the trade is right. The
+  // measured strategy analysis knows: a signal whose realised profit factor is
+  // below 1 is a worse bet than one above it, and that difference belongs in
+  // the size, not only in the entry decision.
+  //
+  // The multiplier is clamped so it can never more than halve a position or
+  // inflate it by more than half, and it defaults to 1.0 (no change) when
+  // there is no measurement — an unmeasured strategy is sized exactly as
+  // before, never smaller by accident.
+  const edgeMult = Math.max(0.5, Math.min(1.5, Number(input.edgeMultiplier) || 1));
+
   if (atr && atr > 0) {
-    riskKrw = equity * (p.riskPctPerTrade / 100);
+    riskKrw = equity * (p.riskPctPerTrade / 100) * edgeMult;
     const riskPerShare = p.atrMultiplier * atr;
     qty = Math.floor(riskKrw / riskPerShare);
     stopPrice = Math.round((priceKrw - riskPerShare) / fx * 100) / 100;
     method = "atr";
   } else {
-    const budgetKrw = equity * (p.equityFallbackPct / 100);
+    const budgetKrw = equity * (p.equityFallbackPct / 100) * edgeMult;
     qty = Math.floor(budgetKrw / priceKrw);
     method = "equity_pct";
   }
