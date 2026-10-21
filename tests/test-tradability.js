@@ -17,6 +17,7 @@ const {
   rankByOpportunity,
   API_SUPPORTED_MARKETS,
 } = require("../src/agent/tradability");
+const { marketSessionState, minutesUntilNextOpen } = require("../src/agent/marketCalendar");
 
 // 2026-10-21 is a Wednesday.
 // 15:00 UTC = 11:00 ET (EDT, UTC-4)  -> the US session is open.
@@ -162,4 +163,28 @@ test("the ranking drops the candidates that are not tradable", function () {
   const ranked = rankByOpportunity([bad, good]);
   assert.strictEqual(ranked.length, 1);
   assert.strictEqual(ranked[0].symbol, "GOOD");
+});
+
+/**
+ * [2026-10-21 4단계] The session boundaries are HHMM (930 = 09:30). The
+ * remaining time has to be computed in minutes of the day: comparing the
+ * two as HHMM reported a 487-minute wait for a session that opens in 46.
+ */
+test("the wait for the next open is in minutes, not in HHMM", function () {
+  // 12:00 UTC = 08:00 New York (EDT, UTC-4) -> 90 minutes to the 09:30 open.
+  const pre = marketSessionState("US", new Date(Date.parse("2026-10-21T12:00:00Z")));
+  assert.strictEqual(pre.state, "pre");
+  assert.strictEqual(pre.opensInMinutes, 90);
+  assert.strictEqual(minutesUntilNextOpen("US", new Date(Date.parse("2026-10-21T12:00:00Z"))), 90);
+
+  // 15:00 UTC = 11:00 New York -> the session is open, 5 hours to the close.
+  const open = marketSessionState("US", new Date(Date.parse("2026-10-21T15:00:00Z")));
+  assert.strictEqual(open.state, "open");
+  assert.strictEqual(open.closesInMinutes, 300);
+
+  // 03:00 UTC = 23:00 New York -> after the close; the next open is tomorrow.
+  const post = marketSessionState("US", new Date(Date.parse("2026-10-21T03:00:00Z")));
+  assert.strictEqual(post.state, "post");
+  const wait = minutesUntilNextOpen("US", new Date(Date.parse("2026-10-21T03:00:00Z")));
+  assert.ok(wait > 600 && wait <= 1440, "expected roughly a night of waiting, got " + wait);
 });

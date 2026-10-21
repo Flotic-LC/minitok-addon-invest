@@ -123,6 +123,21 @@ function createHolidayCache({ fetchCalendar, ttlMs = 6 * 3600 * 1000 } = {}) {
  *
  * state: "open" | "pre" | "post" | "weekend" | "holiday" | "unsupported"
  */
+/**
+ * HHMM (930 = 09:30) to minutes past midnight.
+ *
+ * [2026-10-21 4단계] The session boundaries in this module are HHMM and the
+ * local time the calendar computes is HHMM as well. Comparing the two
+ * directly is correct for the *state*; the remaining time, however, has to
+ * be computed in minutes of the day. Getting this wrong reported a
+ * 487-minute wait for a session that opens in 46.
+ */
+function hhmmToMinutes(hhmm) {
+  const n = Number(hhmm);
+  if (!Number.isFinite(n)) return 0;
+  return Math.floor(n / 100) * 60 + (n % 100);
+}
+
 function marketSessionState(market, at = new Date(), holidays = new Set()) {
   const sess = SESSIONS[market];
   if (!sess) {
@@ -132,10 +147,13 @@ function marketSessionState(market, at = new Date(), holidays = new Set()) {
   const base = { state: "closed", opensInMinutes: null, closesInMinutes: null, tz: sess.tz, localTime: local.hm };
   if (!isWeekday(local.weekday)) return Object.assign({}, base, { state: "weekend" });
   if (holidays.has(local.date)) return Object.assign({}, base, { state: "holiday" });
-  if (local.hm >= sess.open && local.hm < sess.close) {
-    return Object.assign({}, base, { state: "open", closesInMinutes: sess.close - local.hm });
+  const openMin = hhmmToMinutes(sess.open);
+  const closeMin = hhmmToMinutes(sess.close);
+  const nowMin = hhmmToMinutes(local.hm);
+  if (nowMin >= openMin && nowMin < closeMin) {
+    return Object.assign({}, base, { state: "open", closesInMinutes: closeMin - nowMin });
   }
-  if (local.hm < sess.open) return Object.assign({}, base, { state: "pre", opensInMinutes: sess.open - local.hm });
+  if (nowMin < openMin) return Object.assign({}, base, { state: "pre", opensInMinutes: openMin - nowMin });
   return Object.assign({}, base, { state: "post" });
 }
 
@@ -155,8 +173,11 @@ function minutesUntilNextOpen(market, at = new Date(), holidays = new Set()) {
     const local = localParts(probe, sess.tz);
     if (!isWeekday(local.weekday)) continue;
     if (holidays.has(local.date)) continue;
-    if (local.hm < sess.open) return (sess.open - local.hm) + d * 1440;
-    if (d === 0 && local.hm < sess.close) return 0;
+    const openMin = hhmmToMinutes(sess.open);
+    const closeMin = hhmmToMinutes(sess.close);
+    const nowMin = hhmmToMinutes(local.hm);
+    if (nowMin < openMin) return (openMin - nowMin) + d * 1440;
+    if (d === 0 && nowMin < closeMin) return 0;
   }
   return null;
 }
