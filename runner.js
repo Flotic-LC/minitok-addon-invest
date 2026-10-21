@@ -4053,6 +4053,14 @@ const SL_MAX_RETRIES = Number(process.env.SL_MAX_RETRIES || 3);
 const SL_RETRY_DELAY_MS = Number(process.env.SL_RETRY_DELAY_MS || 2000);
 
 async function registerStopLoss(orderInfo) {
+  // [2026-10-21 9단계] In paper mode no conditional order reaches the
+  // broker either. A broker-side stop loss is a real order that can fill,
+  // and a half-paper deployment is worse than either mode: the position
+  // looks protected on paper and is not protected at all.
+  if (tradingMode !== promotion.MODES.LIVE) {
+    console.log("[exec] PAPER: the conditional stop/take for " + (orderInfo && orderInfo.symbol) + " was not registered with the broker");
+    return;
+  }
   // [Phase 3.3] Register ATR hard stop alongside conditional order
   if (orderInfo.atr) registerAtrStop(orderInfo.symbol, orderInfo.price, orderInfo.atr);
   const stopPrice = Math.round(orderInfo.price * (1 + STOP_LOSS_PCT / 100));
@@ -4847,6 +4855,39 @@ async function _executeDecisionInner(decision, sym) {
       }
     }
   } catch (e) { /* the restriction is best-effort */ }
+
+  // [2026-10-21 9단계] The paper gate. In paper mode no order reaches the
+  // broker. The decision is recorded as a virtual fill with the price the
+  // strategy assumed, the market price it would have met, the slippage it
+  // would have paid and the net result after the costs. The record says
+  // which mode produced it, so a paper result can never be read as a live
+  // one.
+  if (tradingMode !== promotion.MODES.LIVE) {
+    let _paper = null;
+    try {
+      const _costModel = require("./src/agent/cost-model");
+      const _entry = (typeof entryPrices !== "undefined" && entryPrices && entryPrices.get) ? entryPrices.get(input.symbol) : null;
+      _paper = paperLedger.record({
+        symbol: input.symbol, side: input.side, quantity: input.quantity,
+        strategy: (decision && decision.strategy) || null,
+        reason: (decision && decision.reason) || null,
+        signalTimestamp: (decision && decision._signalTimestamp) || Date.now(),
+        executionTimestamp: Date.now(),
+        expectedFillPrice: Number(decision && decision.price) || Number(input.price) || 0,
+        marketPrice: Number(decision && decision.price) || Number(input.price) || 0,
+        expectedSlippagePct: Number(process.env.PAPER_EXPECTED_SLIPPAGE_PCT || 0.05),
+        costPct: _costModel.roundTripCostPct("US"),
+        entryPrice: _entry != null ? Number(_entry) : null,
+      });
+    } catch (e) {
+      console.warn("[exec] the paper fill could not be recorded: " + (e && e.message));
+    }
+    console.log("[exec] PAPER " + input.side + " " + input.symbol + " " + input.quantity + "@" + input.price
+      + " -> paper fill @" + (_paper ? _paper.fillPrice : "?") + ", net " + (_paper ? _paper.netPnl : "?")
+      + " (no order was sent)");
+    journalEntry({ type: "PAPER_FILL", mode: "paper", symbol: input.symbol, side: input.side, quantity: input.quantity, price: input.price, fillPrice: _paper ? _paper.fillPrice : null, netPnl: _paper ? _paper.netPnl : null, strategy: (decision && decision.strategy) || null });
+    return;
+  }
 
   // [2026-10-21 5단계] The idempotency guard. The claim is taken BEFORE the
   // submission, so a retry after a timeout, a broker 500 or a lost response
@@ -7960,6 +8001,10 @@ function dumpRunnerState() {
     // [2026-10-21 8단계] The month's usage, so a restart does not reset the
     // cost of the account to zero.
     usageLedger: usageLedger.snapshot(),
+    // [2026-10-21 9단계] The paper trades. The promotion needs a paper
+    // history that survives a restart; a deployment that restarts often
+    // would otherwise never accumulate one.
+    paperTrades: paperLedger.trades.slice(-2000),
       // [2026-10-21 5단계] The idempotency claims and the execution-quality
       // counters survive a restart. Without them a restart inside the
       // idempotency window could re-submit an order that had already been
@@ -8092,6 +8137,16 @@ function restoreRunnerState() {
       }
     } catch (e) {
       console.warn("[state] Could not restore the usage ledger: " + (e && e.message));
+    }
+    // [2026-10-21 9단계] The paper trades. The promotion is judged on a paper
+    // history, so it has to outlive a restart.
+    try {
+      if (Array.isArray(raw.paperTrades) && raw.paperTrades.length) {
+        for (const _pt of raw.paperTrades) paperLedger.trades.push(_pt);
+        console.log("[state] Restored " + raw.paperTrades.length + " paper trade(s)");
+      }
+    } catch (e) {
+      console.warn("[state] Could not restore the paper trades: " + (e && e.message));
     }
     // [2026-10-21 5단계] The idempotency claims and the execution-quality
     // counters. A restart inside the idempotency window must not re-submit
@@ -8260,6 +8315,46 @@ function restoreRunnerState() {
 const { createUsageLedger, setUsageLedger } = require("./src/ops/unit-economics");
 const usageLedger = createUsageLedger({ account: process.env.MINITOK_INSTALLATION_ID || process.env.TOSS_CLIENT_ID || "unknown" });
 setUsageLedger(usageLedger);
+
+// [2026-10-21 9단계] The trading mode.
+//
+// DRY_RUN was never a mode: it advanced the target engine's phase, and the
+// phase decided whether a fake operation was injected. There was nothing
+// that said "this order may not reach the broker", nothing in the records
+// that said which mode produced them, and nothing that had to pass before
+// live trading.
+//
+// The capability and the permission are now separate. The environment says
+// what the deployment is CAPABLE of; the promotion record says what it is
+// ALLOWED to do. A live-capable deployment with no promotion on file trades
+// paper, and the mode is stamped on every order, record and notification.
+const promotion = require("./src/ops/promotion");
+const paperLedger = promotion.createPaperLedger({});
+let tradingMode = promotion.MODES.PAPER;
+let tradingModeReason = "not resolved yet";
+let capitalFraction = 0;
+try {
+  const _promoFile = path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "promotion.json");
+  let _promo = null;
+  try {
+    _promo = JSON.parse(fs.readFileSync(_promoFile, "utf8"));
+    if (_promo.signature && !promotion.verifyPromotion(_promo, process.env.PROMOTION_SIGNING_KEY || "")) {
+      console.warn("[mode] the promotion record is not correctly signed - it is ignored and the deployment stays in paper");
+      _promo = null;
+    }
+  } catch (e) { /* no promotion on file: the deployment stays in paper */ }
+  const _mode = promotion.resolveTradingMode({ env: process.env, promotion: _promo });
+  tradingMode = _mode.mode;
+  tradingModeReason = _mode.reason;
+  capitalFraction = promotion.capitalFraction(_promo ? _promo.stage : 0);
+  console.log("[mode] trading mode: " + tradingMode + " (capable of " + _mode.capable + ", capital " + (capitalFraction * 100).toFixed(0) + "%) - " + tradingModeReason);
+  if (_mode.capable === "live" && tradingMode !== "live") {
+    console.log("[mode] NOT LIVE: " + tradingModeReason + ". Paper results are recorded and a promotion is required before any order reaches the broker.");
+  }
+} catch (e) {
+  console.error("[mode] the trading mode could not be resolved - falling back to paper: " + (e && e.message));
+  tradingMode = promotion.MODES.PAPER;
+}
 
 restoreRunnerState();
 
