@@ -256,13 +256,19 @@ function entrySignal(ctx, p) {
     reasons.push("default_buy: score=" + score + " (no specific strategy but positive signals)");
   }
   if (score >= p.minScore && strategy) {
+    // The gate's verdict is part of the reasoning, so the AI sees how thin
+    // the expected move is against the cost and the operator can audit it in
+    // the decision log.
+    reasons.push("cost gate: " + _gate.reason);
     return { action: "BUY", score, reasons, strategy, costGate: _gate };
   }
   // [AGGRESSIVE] If score >= 0 and minScore is 0, allow any positive signal
   if (p.minScore === 0 && score > 0 && !strategy) {
     strategy = "weak_signal";
+    reasons.push("cost gate: " + _gate.reason);
     return { action: "BUY", score, reasons, strategy, costGate: _gate };
   }
+  reasons.push("cost gate: " + _gate.reason);
   return { action: "HOLD", score, reasons, strategy, costGate: _gate };
 }
 
