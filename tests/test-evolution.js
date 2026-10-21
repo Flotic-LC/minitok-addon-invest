@@ -341,7 +341,7 @@ test("proposeToShadow skips trivial changes (<0.5%)", () => {
   assert.equal(r.ok, false);
 });
 
-test("proposeToShadow submits non-trivial changes to shadow mode", () => {
+test("proposeToShadow refuses changes that carry no validated evidence", () => {
   const shadow = createShadowMode({
     constitution: { maxDailyParamChangePct: 200, maxWeeklyParamChangePct: 500, shadowModeMinDays: 7 },
   });
@@ -349,11 +349,15 @@ test("proposeToShadow submits non-trivial changes to shadow mode", () => {
   const genome = { ...evo._internals.defaultGenome(), STOP_LOSS_PCT: -3.0, TAKE_PROFIT_PCT: 8.0 };
   const currentParams = { ...evo._internals.defaultGenome() };
   const r = evo.proposeToShadow(genome, currentParams);
-  assert.ok(r.ok, "at least one proposal should be accepted");
-  assert.ok(r.proposals.length >= 2, "should have at least 2 proposals");
-  const okProposals = r.proposals.filter(p => p.result.ok);
-  assert.ok(okProposals.length >= 2, "both proposals should fit within daily limit of 200%");
-  assert.equal(shadow.stats().observing, okProposals.length);
+  // [2026-10-21 6단계] The evolution engine is the automation. A genome that
+  // has not been through the walk-forward validation carries no evidence, so
+  // the auto-guard refuses it and nothing enters the observation stage. The
+  // proposal is still attempted and reported - silently skipping it is what
+  // made the dead input path invisible in the first place.
+  assert.ok(r.proposals.length >= 2, "both proposals should have been attempted");
+  assert.equal(r.proposals.filter(p => p.result.ok).length, 0, "no proposal may be accepted without evidence");
+  assert.ok(/auto-guard/.test(r.proposals[0].result.reason || ""), r.proposals[0].result.reason);
+  assert.equal(shadow.stats().observing, 0, "nothing may enter the observation stage");
 });
 
 test("proposeToShadow respects shadow daily limit", () => {
@@ -367,7 +371,7 @@ test("proposeToShadow respects shadow daily limit", () => {
   assert.ok(shadow.stats().dailyChangeUsed <= 6.5);
 });
 
-test("proposeToShadow invokes onProposal callback for accepted proposals", () => {
+test("proposeToShadow does not invoke onProposal for a refused proposal", () => {
   const shadow = createShadowMode({
     constitution: { maxDailyParamChangePct: 200, maxWeeklyParamChangePct: 500, shadowModeMinDays: 7 },
   });
@@ -378,7 +382,9 @@ test("proposeToShadow invokes onProposal callback for accepted proposals", () =>
   });
   const genome = { ...evo._internals.defaultGenome(), STOP_LOSS_PCT: -4.0 };
   evo.proposeToShadow(genome, evo._internals.defaultGenome());
-  assert.ok(calls >= 1);
+  // [2026-10-21 6단계] The callback fires for accepted proposals only. A
+  // proposal the auto-guard refused must not be reported as proposed.
+  assert.equal(calls, 0);
 });
 
 test("proposeToShadow skips params with zero current value", () => {

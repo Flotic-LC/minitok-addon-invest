@@ -22,6 +22,20 @@
  *   shadow.tick({ winRate: 0.55, totalTrades: 100 });
  */
 
+const { admitProposal, evaluateDegradation } = require("../agent/auto-guard");
+
+/**
+ * The sources whose proposals are made by the automation itself.
+ *
+ * [2026-10-21 6단계] The guard applies to the changes the automation
+ * proposes. A parameter an operator changes on purpose is a human decision
+ * and is not second-guessed by a statistical gate; a parameter the evolution
+ * engine, the walk-forward validator or the backtest feedback proposes is
+ * exactly the thing that must not be allowed to raise the risk on a bad
+ * sample.
+ */
+const AUTOMATED_SOURCES = Object.freeze(["evolution", "walk-forward", "backtest", "auto-loop", "tuner", "meta-cognition"]);
+
 const DEFAULT_CONSTITUTION = Object.freeze({
   maxDailyParamChangePct: 5.0,
   maxWeeklyParamChangePct: 15.0,
@@ -90,6 +104,26 @@ function createShadowMode(options = {}) {
     if (currentValue === 0) {
       return { ok: false, reason: "cannot compute change % from zero current value" };
     }
+    // [2026-10-21 6단계] The admission gate for an automated proposal.
+    //
+    // Before this, the only question was how large the change was. The
+    // evidence behind it was never examined, so a backtest with zero trades,
+    // a negative return or an overfitted in-sample result could reach
+    // "applied" as long as the change was small. The guard refuses it.
+    const _source = (meta && meta.source) || null;
+    let _guard = null;
+    if (_source && AUTOMATED_SOURCES.indexOf(_source) >= 0) {
+      _guard = admitProposal({
+        param: param,
+        currentValue: currentValue,
+        proposedValue: proposedValue,
+        evidence: (meta && meta.evidence) || null,
+        expectedEffect: (meta && meta.expectedEffect) || null,
+      }, options.guardConfig);
+      if (!_guard.allowed) {
+        return { ok: false, reason: "the auto-guard refused this proposal: " + _guard.reason, checks: _guard.checks, source: _source };
+      }
+    }
     const changePct = Math.abs(((proposedValue - currentValue) / Math.abs(currentValue)) * 100);
     const daily = checkDailyLimit(changePct);
     if (!daily.ok) return daily;
@@ -107,6 +141,22 @@ function createShadowMode(options = {}) {
       shadowDays: constitution.shadowModeMinDays,
       baselineWinRate: (meta && meta.baselineWinRate) || null,
       baselineTrades: (meta && meta.baselineTrades) || 0,
+      // [2026-10-21 6단계] The degradation check needs more than the win
+      // rate: the net expectancy and the drawdown of the configuration that
+      // is running now are the reference the shadow is compared against.
+      baselineNetExpectancy: (meta && meta.baselineNetExpectancy != null) ? meta.baselineNetExpectancy : null,
+      baselineMaxDrawdownPct: (meta && meta.baselineMaxDrawdownPct != null) ? meta.baselineMaxDrawdownPct : null,
+      // [2026-10-21 6단계] The traceability of the change: who proposed it,
+      // on what evidence, how many observations it was based on, what was
+      // expected of it, and what it actually did. A change that cannot be
+      // explained from this record did not come from here.
+      source: _source || "manual",
+      evidence: (meta && meta.evidence) || null,
+      sampleCount: (meta && meta.sampleCount) || (meta && meta.baselineTrades) || 0,
+      expectedEffect: (meta && meta.expectedEffect) || null,
+      actualResult: null,
+      guardChecks: _guard ? _guard.checks : null,
+      rollback: { available: true, reason: null, at: null },
       status: "observing",
       appliedAt: null,
       rolledBackAt: null,
@@ -127,26 +177,36 @@ function createShadowMode(options = {}) {
       const proposed = new Date(s.proposedAt);
       const elapsed = Math.floor((now() - proposed.getTime()) / 86400000);
 
-      // Check degradation during observation
-      if (s.baselineWinRate != null && metrics && metrics.winRate != null && metrics.winRate > 0) {
-        const drop = ((s.baselineWinRate - metrics.winRate) / s.baselineWinRate) * 100;
-        if (drop >= constitution.degradationThresholdPct) {
-          s.status = "rolled_back";
-          s.rolledBackAt = new Date(now()).toISOString();
-          s.rollbackReason = "win rate degraded " + drop.toFixed(1) + "% (threshold: " + constitution.degradationThresholdPct + "%)";
-          history.push({ ts: s.rolledBackAt, event: "rolled_back", param: s.param, reason: s.rollbackReason });
-          onRollback(s);
-          results.push({ action: "rolled_back", entry: s });
-          continue;
-        }
+      // Check degradation during observation.
+      // [2026-10-21 6단계] The win rate alone is a poor detector: a strategy
+      // can hold its win rate and still lose money, because the losses grew.
+      // The net expectancy and the drawdown are checked as well.
+      const _deg = evaluateDegradation({
+        winRate: s.baselineWinRate,
+        netExpectancy: (s.baselineNetExpectancy != null) ? s.baselineNetExpectancy : null,
+        maxDrawdownPct: (s.baselineMaxDrawdownPct != null) ? s.baselineMaxDrawdownPct : null,
+      }, metrics, { degradationThresholdPct: constitution.degradationThresholdPct });
+      if (_deg.degraded) {
+        s.status = "rolled_back";
+        s.rolledBackAt = new Date(now()).toISOString();
+        s.rollbackReason = _deg.reason;
+        s.rollback = { available: false, reason: _deg.reason, at: s.rolledBackAt };
+        s.actualResult = { metrics: metrics || null, verdict: "degraded" };
+        history.push({ ts: s.rolledBackAt, event: "rolled_back", param: s.param, reason: s.rollbackReason });
+        onRollback(s);
+        results.push({ action: "rolled_back", entry: s });
+        continue;
       }
 
       // Check if shadow period has elapsed
       if (elapsed >= s.shadowDays) {
         s.status = "applied";
         s.appliedAt = new Date(now()).toISOString();
+        // [2026-10-21 6단계] What the change actually did, recorded next to
+        // what it was expected to do.
+        s.actualResult = { metrics: metrics || null, verdict: "applied" };
         activeParams.set(s.param, s.proposedValue);
-        history.push({ ts: s.appliedAt, event: "applied", param: s.param, value: s.proposedValue });
+        history.push({ ts: s.appliedAt, event: "applied", param: s.param, value: s.proposedValue, expectedEffect: s.expectedEffect, actualResult: s.actualResult });
         onChange(s);
         results.push({ action: "applied", entry: s });
       }
@@ -162,6 +222,51 @@ function createShadowMode(options = {}) {
 
   function getShadows() { return shadows.filter(s => s.status === "observing"); }
   function getHistory() { return history.slice(); }
+
+  // [2026-10-21 6단계] The change ledger and its persistence. Every automatic
+  // change has to survive a restart with its evidence, its sample size, its
+  // expected effect and its actual result intact, otherwise it cannot be
+  // explained later - and a change that cannot be explained cannot be
+  // rolled back.
+  function getLedger() { return shadows.map(function (s) {
+    return {
+      id: s.id, param: s.param, source: s.source,
+      before: s.currentValue, after: s.proposedValue, changePct: s.changePct,
+      evidence: s.evidence, sampleCount: s.sampleCount,
+      expectedEffect: s.expectedEffect, actualResult: s.actualResult,
+      status: s.status, rollback: s.rollback,
+      proposedAt: s.proposedAt, appliedAt: s.appliedAt, rolledBackAt: s.rolledBackAt,
+      rollbackReason: s.rollbackReason || null,
+    };
+  }); }
+
+  function state() {
+    return {
+      shadows: shadows.slice(),
+      history: history.slice(),
+      activeParams: Array.from(activeParams.entries()),
+      dailyChanges: dailyChanges,
+      weeklyChanges: weeklyChanges,
+    };
+  }
+
+  function restore(s) {
+    if (!s || typeof s !== "object") return;
+    if (Array.isArray(s.shadows)) {
+      shadows.length = 0;
+      for (const e of s.shadows) if (e && e.id) shadows.push(e);
+    }
+    if (Array.isArray(s.history)) {
+      history.length = 0;
+      for (const e of s.history) if (e) history.push(e);
+    }
+    if (Array.isArray(s.activeParams)) {
+      activeParams.clear();
+      for (const e of s.activeParams) if (Array.isArray(e)) activeParams.set(e[0], e[1]);
+    }
+    if (s.dailyChanges) dailyChanges = s.dailyChanges;
+    if (s.weeklyChanges) weeklyChanges = s.weeklyChanges;
+  }
 
   function stats() {
     return {
@@ -180,7 +285,7 @@ function createShadowMode(options = {}) {
     history.length = 0;
   }
 
-  return { propose, tick, getActiveParams, getShadows, getHistory, stats, clear };
+  return { propose, tick, getActiveParams, getShadows, getHistory, getLedger, state, restore, stats, clear };
 }
 
 module.exports = { createShadowMode, DEFAULT_CONSTITUTION };

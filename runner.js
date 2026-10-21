@@ -368,7 +368,18 @@ console.log("[phase-k] Confidence calibration " + (CONFIDENCE_ENABLED ? "enabled
 // Opt-in: set EVOLUTION_ENABLED=true to enable weekly self-evolution cycle.
 const EVOLUTION_ENABLED = process.env.EVOLUTION_ENABLED !== "false";
 const EVOLUTION_INTERVAL_HOURS = Number(process.env.EVOLUTION_INTERVAL_HOURS || 168);
-const EVOLUTION_CANDLES_PATH = process.env.EVOLUTION_CANDLES_PATH || null;
+// [2026-10-21 6단계] The input path for the evolution engine and the
+// walk-forward validation.
+//
+// It used to come only from EVOLUTION_CANDLES_PATH, which is not set in the
+// deployment, so BOTH the evolution engine and the walk-forward validator
+// were permanently skipped - the automation was switched on with no data to
+// work on and no way to notice. The published measurement lives in the
+// durable state directory, so the candles are looked for there. The explicit
+// environment variable still wins, so an operator can point the automation
+// somewhere else.
+const EVOLUTION_CANDLES_PATH = process.env.EVOLUTION_CANDLES_PATH
+  || path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "candles.json");
 const EVOLUTION_GENERATIONS = Number(process.env.EVOLUTION_GENERATIONS || 10);
 const EVOLUTION_POPULATION = Number(process.env.EVOLUTION_POPULATION || 20);
 // [P10-EVO] Mutation rate/sigma configurable via env (Case C: widen mutation spread

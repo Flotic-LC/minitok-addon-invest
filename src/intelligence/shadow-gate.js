@@ -116,6 +116,15 @@ function createShadowGate(options) {
     var proposal = shadowMode.propose(paramName, currentValue, proposedValue, {
       reason: "r5_auto_tune:" + (params.kind || "unknown"),
       baselineWinRate: null, baselineTrades: 0,
+      // [2026-10-21 6단계] This is an automated change, so the auto-guard
+      // applies to it. The tuner used to be able to propose a weight or a
+      // threshold with nothing behind it at all; now the measurement has to
+      // be present and has to pass before the change can even start
+      // observing, and it is checked again at the promotion.
+      source: "tuner",
+      evidence: params.evidence || null,
+      expectedEffect: params.expectedEffect || null,
+      sampleCount: params.sampleCount != null ? params.sampleCount : (params.trades || 0),
     });
 
     if (!proposal.ok) {

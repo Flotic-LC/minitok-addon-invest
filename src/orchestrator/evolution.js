@@ -333,6 +333,21 @@ function createEvolutionEngine(options = {}) {
         continue;
       }
       const result = shadowMode.propose(param, current, proposedValue, {
+        // [2026-10-21 6단계] The evolution engine is the automation, so the
+        // auto-guard applies: the proposal has to carry the measurement it
+        // was derived from, and that measurement has to pass before the
+        // change may start observing.
+        source: "evolution",
+        // [2026-10-21 6단계] The evidence for an evolution proposal is the
+        // walk-forward validation: the in-sample score plus the
+        // out-of-sample result of the very same genome. The walk-forward
+        // result is not available inside the evolution engine, so the
+        // proposal carries no evidence and the auto-guard refuses it with a
+        // stated reason - "the evidence is missing" - instead of letting an
+        // unvalidated genome reach the observation stage. Wiring the
+        // walk-forward result through is the remaining step.
+        evidence: null,
+        expectedEffect: "the evolved genome scored better in the backtest",
         reason: "evolution_best (fitness-driven)",
         baselineWinRate: null,
       });
