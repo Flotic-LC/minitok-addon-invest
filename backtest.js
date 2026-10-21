@@ -16,6 +16,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createSafety } = require("./src/agent/safety");
+const { validateCandleData, validateCandle, buildResultMeta } = require("./src/strategy/candle-validation");
 
 // [P2-10 Integration] Knowledge store — feed backtest results for self-improvement
 const { createKnowledgeStore } = require("./src/strategy/knowledge-store");
@@ -177,7 +178,17 @@ function decide(closes, portfolio, symbol, opts) {
     stopLossPct: opts.stopLoss,
     takeProfitPct: opts.takeProfit,
   });
-  return { action: signal.action, reason: signal.reasons.join("; "), score: signal.score };
+  return {
+    action: signal.action,
+    reason: signal.reasons.join("; "),
+    score: signal.score,
+    // [2026-10-21] Which stop and take-profit actually governed this decision.
+    // The ATR override in exitSignal replaces the supplied stop/take entirely,
+    // so a backtest run with --stop-loss/-take-profit silently measured
+    // something else. The caller needs to know which numbers were in force.
+    effectiveStopLossPct: signal.effectiveStopLossPct,
+    effectiveTakeProfitPct: signal.effectiveTakeProfitPct,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +227,23 @@ function applySlippage(price, side, orderValue, avgVolume, opts) {
 // Portfolio simulation
 // ---------------------------------------------------------------------------
 function runBacktest(candles, opts) {
+  // [2026-10-21] Fail-closed input gate.
+  //
+  // A dataset with unusable prices (the historical failure mode: open/close
+  // = 0 while high/low stayed valid) silently produced 0 trades, sharpe 0
+  // and a flat equity curve. Every metric was still a number, so the result
+  // file was indistinguishable from a real measurement and the runner read
+  // it back as "conservative but underperforming" and loosened live risk.
+  //
+  // The validation is attached to the result so the consumer can tell a
+  // measurement from a computation failure. Invalid candles are excluded
+  // from the run; the result is marked degraded and must not be written as
+  // a normal backtest result.
+  const validation = validateCandleData(candles);
+  const usableCandles = validation.ok
+    ? candles
+    : candles.filter(function(c) { return validateCandle(c) === null; });
+
   const safety = createSafety({
     maxOrderValueKrw: opts.maxOrderValueKrw,
     dailyMaxValueKrw: opts.initial, // full equity can be traded per day max
@@ -239,15 +267,22 @@ function runBacktest(candles, opts) {
 
   // Group candles by symbol while preserving insertion order
   const bySymbol = new Map();
-  for (const c of candles) {
+  for (const c of usableCandles) {
     if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, []);
     bySymbol.get(c.symbol).push(c);
   }
 
   // Build a merged timeline of unique dates (ascending)
-  const allDates = [...new Set(candles.map((c) => c.date))].sort();
+  const allDates = [...new Set(usableCandles.map((c) => c.date))].sort();
+
+  // [2026-10-21] Tracks which stop/take actually governed the run.
+  const effectiveStops = { stopMin: null, stopMax: null, takeMin: null, takeMax: null, atrAdjusted: 0 };
 
   for (const date of allDates) {
+    // [2026-10-21] The replay advances the safety module's trading day, so
+    // the daily traded-value limit applies per historical day instead of once
+    // for the whole run.
+    if (typeof safety.setTradingDay === "function") safety.setTradingDay(date);
     for (const [symbol, series] of bySymbol) {
       const idx = series.findIndex((c) => c.date === date);
       if (idx < 0) continue;
@@ -256,6 +291,20 @@ function runBacktest(candles, opts) {
       if (!price || closes.length < 3) continue;
 
       const decision = decide(closes, portfolio, symbol, opts);
+      // [2026-10-21] Track which stop/take actually governed the decisions.
+      if (decision.effectiveStopLossPct != null) {
+        const _sl = Number(decision.effectiveStopLossPct);
+        const _tp = Number(decision.effectiveTakeProfitPct);
+        if (Number.isFinite(_sl)) {
+          if (effectiveStops.stopMin == null || _sl < effectiveStops.stopMin) effectiveStops.stopMin = _sl;
+          if (effectiveStops.stopMax == null || _sl > effectiveStops.stopMax) effectiveStops.stopMax = _sl;
+          if (Math.abs(_sl - opts.stopLoss) > 0.0001) effectiveStops.atrAdjusted++;
+        }
+        if (Number.isFinite(_tp)) {
+          if (effectiveStops.takeMin == null || _tp < effectiveStops.takeMin) effectiveStops.takeMin = _tp;
+          if (effectiveStops.takeMax == null || _tp > effectiveStops.takeMax) effectiveStops.takeMax = _tp;
+        }
+      }
       // [P3-13] Use high-low spread as a proxy for average daily volume
       const recentHigh = series[idx].high ? Number(series[idx].high) : price;
       const recentLow = series[idx].low ? Number(series[idx].low) : price;
@@ -263,12 +312,25 @@ function runBacktest(candles, opts) {
       const avgVolume = series[idx].volume ? Number(series[idx].volume) * price : (price * 10000);
 
       if (decision.action === "BUY") {
-        const intendedQty = Math.max(1, Math.floor(opts.maxOrderValueKrw / price));
+        // [2026-10-21] Size the order so that it FITS the limit after costs.
+        // The order was sized from the raw price, so the slippage- and
+        // commission-adjusted value landed just over the cap and the safety
+        // guard rejected every single order — a backtest that could not trade
+        // at all, which is the same failure shape as the zero-price dataset.
+        const _probe = applySlippage(price, "BUY", 0, avgVolume, opts);
+        const _perUnit = _probe.effectiveCost || price;
+        const intendedQty = Math.max(1, Math.floor(opts.maxOrderValueKrw / _perUnit));
         const slip = applySlippage(price, "BUY", intendedQty * price, avgVolume, opts);
-        const qty = Math.max(1, Math.floor(intendedQty * slip.fillRate));
+        let qty = Math.max(1, Math.floor(intendedQty * slip.fillRate));
         const costPerShare = slip.effectiveCost;
+        while (qty > 0 && costPerShare * qty > opts.maxOrderValueKrw) qty--;
         const totalCost = costPerShare * qty;
         const guard = safety.checkPreCreateOrder({ symbol, side: "BUY", price: costPerShare, quantity: qty });
+        // [2026-10-21] A limit too small to buy a single share must not
+        // create a zero-quantity position: the trim above can take the
+        // quantity to 0, and a zero-size position would be recorded as a
+        // trade while carrying no exposure.
+        if (qty < 1) continue;
         if (guard.ok && portfolio.cash >= totalCost) {
           portfolio.cash -= totalCost;
           const pos = portfolio.positions.get(symbol);
@@ -280,6 +342,14 @@ function runBacktest(candles, opts) {
             portfolio.positions.set(symbol, { qty: qty, avgPrice: costPerShare });
           }
           safety.recordPositionOpen(symbol);
+          // [2026-10-21] The safety module only accumulates the daily traded
+          // value when an order succeeds, and the backtest never told it.
+          // The daily traded-value limit was therefore inert in every
+          // backtest: the replay could trade more in a day than the live bot
+          // is allowed to, so the measurement was optimistic by construction.
+          if (typeof safety.recordOrderSuccess === "function") {
+            safety.recordOrderSuccess({ price: costPerShare, quantity: qty });
+          }
           trades.push({
             date: date, symbol: symbol, side: "BUY",
             signalPrice: price, price: Number(costPerShare.toFixed(2)),
@@ -296,6 +366,9 @@ function runBacktest(candles, opts) {
           const filledQty = Math.max(1, Math.floor(intendedQty * slip.fillRate));
           const proceeds = filledQty * slip.effectiveCost;
           portfolio.cash += proceeds;
+          if (typeof safety.recordOrderSuccess === "function") {
+            safety.recordOrderSuccess({ price: slip.effectiveCost, quantity: filledQty });
+          }
           const pnl = (slip.effectiveCost - pos.avgPrice) * filledQty;
           if (pnl >= 0) wins++; else losses++;
           safety.recordPositionClose(symbol);
@@ -375,6 +448,36 @@ function runBacktest(candles, opts) {
     wins: wins,
     losses: losses,
     winRatePct: Number(winRate.toFixed(2)),
+    // [2026-10-21] Provenance. A consumer MUST check meta.validation before
+    // treating any of the numbers above as a strategy measurement. A result
+    // with meta.validation !== "ok" or meta.confidence === "none" is a
+    // computation failure, not a strategy verdict.
+    meta: buildResultMeta(validation, {
+      trades: trades.length,
+      costModel: {
+        commissionPct: opts.commissionPct,
+        slippagePct: opts.slippagePct,
+        impactCoefficient: opts.impactCoefficient,
+        partialFillRate: opts.partialFillRate,
+        maxOrderValueKrw: opts.maxOrderValueKrw,
+        initialEquity: opts.initial,
+      },
+      // [2026-10-21] Which stop and take-profit were actually in force. The
+      // ATR override in the exit signal replaces the supplied stop/take, so
+      // a run with --stop-loss/-take-profit can measure something entirely
+      // different from what it claims. A measurement that does not say which
+      // parameters governed it cannot be used to tune them.
+      effectiveStops: {
+        source: effectiveStops.atrAdjusted > 0 ? "atr" : "cli",
+        suppliedStopLossPct: opts.stopLoss,
+        suppliedTakeProfitPct: opts.takeProfit,
+        stopLossPct: effectiveStops.stopMin,
+        takeProfitPct: effectiveStops.takeMin,
+        stopLossPctMax: effectiveStops.stopMax,
+        takeProfitPctMax: effectiveStops.takeMax,
+        atrAdjustedDecisions: effectiveStops.atrAdjusted,
+      },
+    }),
     // [P3-13] Slippage / execution realism
     slippageConfig: {
       slippagePct: opts.slippagePct,
@@ -412,6 +515,19 @@ function main() {
   console.log("[backtest] Loaded " + candles.length + " candles from " + dataPath);
   console.log("[backtest] Config: initial=" + args.initial + " KRW, stopLoss=" + args.stopLoss + "%, takeProfit=" + args.takeProfit + "%, maxOrder=" + args.maxOrderValueKrw + " KRW");
 
+  // [2026-10-21] Validate the input BEFORE the run so the operator sees the
+  // reason a dataset is unusable instead of a silently flat result.
+  const validation = validateCandleData(candles);
+  if (!validation.ok) {
+    console.error("[backtest] INPUT DATA REJECTED: " + validation.invalidReason);
+    for (const issue of validation.issues) console.error("[backtest]   - " + issue);
+    console.error("[backtest] No result was written. Fix or replace the candle data first.");
+    process.exit(2);
+  }
+  console.log("[backtest] Data validation OK: " + validation.metadata.symbolCount + " symbol(s), "
+    + validation.metadata.candleCount + " candles, " + validation.metadata.dataStart
+    + " .. " + validation.metadata.dataEnd + ", valid ratio " + validation.metadata.validCandleRatio);
+
   const result = runBacktest(candles, args);
 
   console.log("");
@@ -423,6 +539,8 @@ function main() {
   console.log("Sharpe (ann.)  : " + result.sharpe);
   console.log("Trades         : " + result.trades + " (BUY " + result.buys + " / SELL " + result.sells + ")");
   console.log("Win rate       : " + result.winRatePct + "% (" + result.wins + "W / " + result.losses + "L)");
+  console.log("Validation     : " + result.meta.validation + " (confidence " + result.meta.confidence + ")"
+    + (result.meta.invalidReason ? " — " + result.meta.invalidReason : ""));
   console.log("");
 
   if (process.env.BACKTEST_VERBOSE === "true") {
@@ -432,13 +550,35 @@ function main() {
     }
   }
 
-  // Machine-readable output for CI / tooling
+  // [2026-10-21] Fail-closed write gate.
+  //
+  // A result is only written as the canonical backtest-result.json when the
+  // input validated cleanly AND the run actually produced trades. A 0-trade
+  // run is a computation failure, not a strategy verdict, and must never
+  // overwrite a previous good result — that is exactly how a broken dataset
+  // reached the live risk loop in the first place.
   const outPath = path.join(path.dirname(dataPath), "backtest-result.json");
+  const quarantinePath = path.join(path.dirname(dataPath), "backtest-result.invalid.json");
+  const trustworthy = result.meta.validation === "ok"
+    && result.meta.confidence === "high"
+    && result.trades > 0;
+
   try {
-    fs.writeFileSync(outPath, JSON.stringify(result, null, 2), "utf8");
-    console.log("[backtest] Full result written to " + outPath);
+    if (trustworthy) {
+      fs.writeFileSync(outPath, JSON.stringify(result, null, 2), "utf8");
+      console.log("[backtest] Full result written to " + outPath);
+    } else {
+      const reason = result.trades === 0
+        ? "no trades were generated — the input cannot be traded, or the strategy did not fire"
+        : (result.meta.invalidReason || "validation did not pass");
+      fs.writeFileSync(quarantinePath, JSON.stringify(result, null, 2), "utf8");
+      console.error("[backtest] RESULT NOT TRUSTWORTHY (" + reason + ")");
+      console.error("[backtest] Quarantined to " + quarantinePath + " — the previous " + outPath + " was left untouched.");
+      process.exitCode = 3;
+    }
   } catch (e) {
     console.error("[backtest] Failed to write result: " + e.message);
+    process.exitCode = 1;
   }
 
   // [P2-10 Integration] Feed backtest SELL trades into knowledge store

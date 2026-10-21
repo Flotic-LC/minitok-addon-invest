@@ -261,10 +261,12 @@ function exitSignal(ctx, position, p) {
   }
 
   if (retPct <= stopLossPct) {
-    return { action: "SELL", score: 10, reasons: [...reasons, "stop-loss " + stopLossPct.toFixed(2) + "%"], strategy: "risk_exit" };
+    return { action: "SELL", score: 10, reasons: [...reasons, "stop-loss " + stopLossPct.toFixed(2) + "%"], strategy: "risk_exit",
+             effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }
   if (retPct >= takeProfitPct) {
-    return { action: "SELL", score: 10, reasons: [...reasons, "take-profit " + takeProfitPct.toFixed(2) + "%"], strategy: "risk_exit" };
+    return { action: "SELL", score: 10, reasons: [...reasons, "take-profit " + takeProfitPct.toFixed(2) + "%"], strategy: "risk_exit",
+             effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }
 
   let score = 0;
@@ -279,9 +281,11 @@ function exitSignal(ctx, position, p) {
   if (ctx.ema9 != null && ctx.ema21 != null && ctx.ema9 < ctx.ema21) { score++; reasons.push("ema9<ema21 bearish cross"); }
 
   if (score >= p.minScore) {
-    return { action: "SELL", score, reasons, strategy: "trend_exit" };
+    return { action: "SELL", score, reasons, strategy: "trend_exit",
+             effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }
-  return { action: "HOLD", score, reasons, strategy: null };
+  return { action: "HOLD", score, reasons, strategy: null,
+           effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
 }
 
 module.exports = { DEFAULT_PARAMS, generateSignal };

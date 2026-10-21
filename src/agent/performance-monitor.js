@@ -164,7 +164,53 @@ function createPerformanceMonitor(options = {}) {
     return lines.join("\n") + "\n";
   }
 
-  return { recordEquity, recordTrade, report, toPrometheus, DEFAULTS: p };
+  // [2026-10-21] Persistence.
+  //
+  // The monitor's history lived only in memory, so every container restart
+  // reset it: the Prometheus gauges reported total_trades 0 and a Sharpe
+  // computed from only the equity samples taken after the restart. The live
+  // numbers therefore described the last few minutes, not the account. The
+  // runner now persists this state alongside its own.
+  function state() {
+    return {
+      equityHistory: equityHistory.slice(),
+      tradeHistory: tradeHistory.slice(),
+      highWaterMark: highWaterMark,
+      maxDrawdownPct: maxDrawdownPct,
+    };
+  }
+
+  function restore(s) {
+    if (!s || typeof s !== "object") return;
+    if (Array.isArray(s.equityHistory)) {
+      equityHistory.length = 0;
+      for (const e of s.equityHistory) {
+        const v = Number(e && e.equity);
+        if (!Number.isFinite(v) || v <= 0) continue;
+        equityHistory.push({ equity: v, date: e.date || null });
+        if (v > highWaterMark) highWaterMark = v;
+        const dd = highWaterMark > 0 ? ((highWaterMark - v) / highWaterMark) * 100 : 0;
+        if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+      }
+    }
+    if (Array.isArray(s.tradeHistory)) {
+      tradeHistory.length = 0;
+      for (const t of s.tradeHistory) {
+        if (!t || typeof t !== "object") continue;
+        tradeHistory.push({
+          symbol: t.symbol,
+          side: t.side,
+          pnl: Number(t.pnl) || 0,
+          suppressed: !!t.suppressed,
+          timestamp: t.timestamp || null,
+        });
+      }
+    }
+    if (Number.isFinite(Number(s.highWaterMark))) highWaterMark = Number(s.highWaterMark);
+    if (Number.isFinite(Number(s.maxDrawdownPct))) maxDrawdownPct = Number(s.maxDrawdownPct);
+  }
+
+  return { recordEquity, recordTrade, report, toPrometheus, state, restore, DEFAULTS: p };
 }
 
 module.exports = { createPerformanceMonitor, DEFAULTS };

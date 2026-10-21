@@ -16,10 +16,17 @@ function createSafety(safetyLimits = {}) {
   // [FIX #3] Stateful risk tracking
   let dailyTradedValueKrw = 0;
   let dailyResetDate = new Date().toISOString().slice(0, 10);
+  let externalTradingDay = null;
   const openOrderCount = { value: 0 };
   const positionCounts = new Map(); // symbol -> count
 
   function resetDailyIfNewDay() {
+    // [2026-10-21] Replay mode. A backtest walks a historical timeline, so
+    // the caller advances the trading day explicitly. Without this the real
+    // clock never changed during a replay, the daily traded-value limit was
+    // consumed once and never reset, and a 120-day backtest was measured as
+    // if it were a single trading day.
+    if (externalTradingDay) return;
     const today = new Date().toISOString().slice(0, 10);
     if (today !== dailyResetDate) {
       dailyTradedValueKrw = 0;
@@ -30,6 +37,15 @@ function createSafety(safetyLimits = {}) {
   return {
     // Expose for external sync (e.g. runner can update openOrderCount after fills)
     setOpenOrderCount(count) { openOrderCount.value = count; },
+    // [2026-10-21] Advance the trading day during a historical replay.
+    setTradingDay(day) {
+      if (!day) return;
+      externalTradingDay = String(day);
+      if (externalTradingDay !== dailyResetDate) {
+        dailyTradedValueKrw = 0;
+        dailyResetDate = externalTradingDay;
+      }
+    },
     recordPositionOpen(symbol) {
       positionCounts.set(symbol, (positionCounts.get(symbol) || 0) + 1);
     },

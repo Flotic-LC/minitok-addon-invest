@@ -431,7 +431,7 @@ process.on("uncaughtException", function(err) {
 const { createTossWsClient } = require("./src/ws");
 const { fetchAccessToken, resetTokenCache, getHoldings, getBuyingPower, getOrders, getOrder, getCandles, getPriceLimits, getStockWarnings, getExchangeRate, createConditionalOrder, cancelConditionalOrder, getConditionalOrders, getOrderbook, getTrades, getMarketCalendar, getPrices, liquidityFloorReason } = require("./src/tossinvest");
 // [Phase 1] New modules: P&L calculator, durable event store, order manager, market calendar, metrics
-const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket } = require("./src/agent/pnl");
+const { computeRoundTripPnl, computeUnrealizedPnl, detectMarket, resolveFees } = require("./src/agent/pnl");
 const scalper = require("./src/agent/scalper");
 const { createStore } = require("./src/store");
 // orderManager removed: pendingOrders Map + monitorPendingOrders() handle the lifecycle.
@@ -459,6 +459,7 @@ const knowledgeStore = createKnowledgeStore({ path: process.env.KNOWLEDGE_PATH |
 
 // [P1-5 Integration] Performance monitor — Sharpe/Sortino/MaxDD + Prometheus
 const { createPerformanceMonitor } = require("./src/agent/performance-monitor");
+const { assessBacktestTrust, roundTripCostPct } = require("./src/agent/backtest-trust");
 const perfMonitor = createPerformanceMonitor();
 
 
@@ -2033,47 +2034,100 @@ let liveParamsOverride = null;
 // loop concludes the strategy is safe-but-underperforming and LOOSENS risk
 // (stop -2% -> -3%, take-profit 5% -> 8%) on the strength of no evidence.
 const BT_MIN_TRADES = Number(process.env.BT_MIN_TRADES || 20);
+// [2026-10-21] A backtest over a handful of bars cannot support a risk
+// parameter change, however good its numbers look.
+const BT_MIN_DATA_DAYS = Number(process.env.BT_MIN_DATA_DAYS || 20);
+// [2026-10-21] The stop-loss the backtest feedback may suggest is floored at
+// this multiple of the round-trip transaction cost. A stop narrower than the
+// cost band cannot pay for itself.
+const BT_STOP_COST_MULTIPLE = Number(process.env.BT_STOP_COST_MULTIPLE || 3);
 
 function loadBacktestFeedback() {
-  const btPath = path.join(__dirname, "backtest-result.json");
+  // [2026-10-21] Read the result from the durable state directory first.
+  // The runner's state dir is a mounted volume, so a result written there
+  // survives a container recreate. The result used to be read from the image
+  // layer, where nothing could ever write it — the automated backtest wrote
+  // its output to the host directory and the runner never saw it.
+  const _btCandidates = [
+    path.join(process.env.STATE_DIR || path.join(__dirname, "state"), "backtest-result.json"),
+    path.join(__dirname, "backtest-result.json"),
+  ];
+  const btPath = _btCandidates.find(function(p) { try { return fs.existsSync(p); } catch (e) { return false; } });
+  if (!btPath) return null;
   try {
-    if (!fs.existsSync(btPath)) return null;
     const bt = JSON.parse(fs.readFileSync(btPath, "utf8"));
     if (!bt || typeof bt.sharpe !== "number") return null;
 
-    // [P10-1] Trust gate. Reject anything that cannot support a parameter change.
-    const trades = Number(bt.trades || 0);
-    if (trades < BT_MIN_TRADES) {
+    // [2026-10-21] The trust gate lives in src/agent/backtest-trust.js so it
+    // can be unit tested directly — it is the single check that stands
+    // between a broken measurement and a live risk parameter. It is
+    // fail-closed: a result that does not positively prove it came from a
+    // validated, adequately sized run is rejected.
+    const trust = assessBacktestTrust(bt, { minTrades: BT_MIN_TRADES, minDataDays: BT_MIN_DATA_DAYS });
+    if (!trust.trusted) {
       console.warn(
-        "[backtest-feedback] REJECTED: trades=" + trades + " < min " + BT_MIN_TRADES +
-        " (sharpe=" + bt.sharpe + ", return=" + bt.totalReturnPct + "%, dd=" + bt.maxDrawdownPct + "%)." +
-        " Keeping default STOP_LOSS_PCT/TAKE_PROFIT_PCT." +
-        (trades === 0
-          ? " NOTE: 0 trades usually means the candle input had no usable prices (open/close = 0), so backtest.js skipped every signal."
-          : "")
+        "[backtest-feedback] REJECTED (" + btPath + "): " + trust.reason +
+        ". Keeping default STOP_LOSS_PCT/TAKE_PROFIT_PCT."
       );
       return null;
     }
-    if (bt.sharpe === 0 && bt.totalReturnPct === 0 && bt.maxDrawdownPct === 0) {
-      console.warn("[backtest-feedback] REJECTED: all metrics are zero despite " + trades + " trades — input data is suspect. Keeping defaults.");
-      return null;
-    }
 
+    const trades = Number(bt.trades || 0);
     const feedback = { loadedAt: new Date().toISOString(), sharpe: bt.sharpe, totalReturnPct: bt.totalReturnPct, maxDrawdownPct: bt.maxDrawdownPct, trades: trades };
+    feedback.provenance = trust.provenance;
+    // [2026-10-21] A backtest that lost money says nothing trustworthy about
+    // how to tune the live risk, and the loosening branches below widen the
+    // stop. A losing measurement may only tighten. See assessBacktestTrust.
+    const profitable = trust.mayLoosen === true;
+    if (!profitable) {
+      feedback.note = "backtest total return " + bt.totalReturnPct + "% is not positive — "
+        + "only tightening adjustments are permitted";
+    }
+    // [2026-10-21] Only tune a parameter the measurement actually exercised.
+    // The ATR override in the exit signal replaces the supplied stop and
+    // take-profit, so a backtest run with --stop-loss/-take-profit can
+    // measure something else entirely. Tuning a parameter that was not in
+    // force is tuning noise — and the feedback was tuning exactly that.
+    const _effStops = trust.provenance && trust.provenance.effectiveStops;
+    const _stopsInForce = _effStops && _effStops.source === "cli";
+    if (!_stopsInForce) {
+      feedback.note = (feedback.note ? feedback.note + "; " : "")
+        + "the measurement was governed by ATR-derived stops, not by the supplied stop/take"
+        + (_effStops ? " (ATR-adjusted on " + _effStops.atrAdjustedDecisions + " decisions)" : "")
+        + " — STOP_LOSS_PCT/TAKE_PROFIT_PCT are not tuned from it";
+    }
     // Adjust stop-loss based on backtest drawdown
-    if (bt.maxDrawdownPct > 3) {
-      feedback.suggestedStopLossPct = -1.5; // Tighten stop
-      feedback.note = "Backtest drawdown > 3%, tightening stop-loss to -1.5%";
-    } else if (bt.maxDrawdownPct < 1) {
+    if (bt.maxDrawdownPct > 3 && _stopsInForce) {
+      // [2026-10-21] A stop inside the transaction-cost band is not a risk
+      // control, it is a guaranteed loss generator. The round trip costs
+      // about 0.50% (commission 0.25% each way plus a 0.00278% regulatory
+      // fee), so the -1.5% stop this branch suggests would be swallowed by
+      // the costs before it could ever pay out — and with the measurement
+      // system finally working, this branch can fire for the first time. The
+      // tightening is therefore floored at a multiple of the round-trip
+      // cost. This only narrows what the feedback may do; it never widens.
+      const _roundTripCostPct = roundTripCostPct("US");
+      const _stopFloorPct = -(Math.abs(_roundTripCostPct) * BT_STOP_COST_MULTIPLE);
+      const _tightened = Math.min(-1.5, _stopFloorPct);
+      feedback.suggestedStopLossPct = _tightened;
+      feedback.note = (feedback.note ? feedback.note + "; " : "") + "Backtest drawdown > 3%, tightening stop-loss to "
+        + _tightened + "% (round-trip cost " + _roundTripCostPct.toFixed(3) + "%, floor "
+        + BT_STOP_COST_MULTIPLE + "x = " + _stopFloorPct.toFixed(2) + "%)";
+    } else if (bt.maxDrawdownPct < 1 && profitable && _stopsInForce) {
       feedback.suggestedStopLossPct = -3; // Loosen stop for more room
-      feedback.note = "Backtest drawdown < 1%, loosening stop-loss to -3%";
+      feedback.note = (feedback.note ? feedback.note + "; " : "") + "Backtest drawdown < 1%, loosening stop-loss to -3%";
     }
     // Adjust take-profit based on win rate
-    if (bt.winRatePct < 40 && bt.sharpe < 0.5) {
+    if (bt.winRatePct < 40 && bt.sharpe < 0.5 && profitable && _stopsInForce) {
       feedback.suggestedTakeProfitPct = 8; // Wider TP to let winners run
       feedback.note = (feedback.note ? feedback.note + "; " : "") + "Low win rate, widening take-profit to 8%";
     }
     console.log("[backtest-feedback] Loaded: Sharpe=" + bt.sharpe + ", Return=" + bt.totalReturnPct + "%, DD=" + bt.maxDrawdownPct + "%, trades=" + trades);
+    const p = trust.provenance;
+    console.log("[backtest-feedback] Provenance: " + p.dataStart + " .. " + p.dataEnd
+      + ", symbols=" + p.symbolCount + ", candles=" + p.candleCount
+      + ", validRatio=" + p.validCandleRatio + ", validation=" + p.validation
+      + ", confidence=" + p.confidence);
     if (feedback.note) console.log("[backtest-feedback] " + feedback.note);
     return feedback;
   } catch (e) {
@@ -6197,9 +6251,15 @@ async function start() {
             ts: new Date().toISOString(),
           }, source: "walk-forward" });
 
-          // Block deployment if walk-forward rejects
-          if (wfResult.verdict === "reject") {
-            console.warn("[phase-h] Walk-forward REJECTED evolved parameters — blocking deployment to prevent overfitting");
+          // Block deployment unless the walk-forward positively validated the
+          // parameters.
+          // [2026-10-21] This was `verdict === "reject"`, which let every
+          // other verdict through — including "insufficient_data", the
+          // verdict for "there was no evidence". A validation that produced
+          // no evidence must not be treated as a pass. Only "deploy" allows
+          // the parameters through.
+          if (wfResult.verdict !== "deploy") {
+            console.warn("[phase-h] Walk-forward did NOT validate the evolved parameters (verdict: " + wfResult.verdict + ", reason: " + wfResult.reason + ") — blocking deployment to prevent overfitting");
             sendTelegramAlert("🚫 *Walk-Forward Rejection*\nEvolved parameters failed OOS validation.\nReason: " + wfResult.reason + "\nKeeping current parameters.", "warning");
             audit.config({ key: "evolution_cycle", oldValue: null, newValue: {
               bestFitness: result.run.bestFitness,
@@ -7320,7 +7380,13 @@ refresh();setInterval(refresh,10000);
            res.writeHead(200, { "Content-Type": "application/json" });
            try {
              const { spawnSync } = require("child_process");
-             const _btResult = spawnSync("node", ["backtest.js", "--data", "backtest-result.json"], { cwd: process.cwd(), encoding: "utf8", timeout: 30000 });
+             // [2026-10-21] The data file must be the CANDLE file. It used to
+             // pass backtest-result.json — the result of a previous run — as
+             // the input, which is an object rather than a candle array, so
+             // the backtest could never run from this endpoint.
+             const _btDataPath = process.env.EVOLUTION_CANDLES_PATH
+               || path.join(__dirname, "candles.json");
+             const _btResult = spawnSync("node", ["backtest.js", "--data", _btDataPath], { cwd: process.cwd(), encoding: "utf8", timeout: 120000 });
              var _btOutput = _btResult.stdout || "";
              var _btError = _btResult.stderr || "";
              // Try to parse JSON from output
@@ -7423,6 +7489,12 @@ function dumpRunnerState() {
       // correlation engine now keeps its own rolling per-bucket counters,
       // which are persisted separately below.
       reflectionEventBus: eventBus ? eventBus.state(500) : null,
+      // [2026-10-21] The live performance metrics (Sharpe, trade count, win
+      // rate, drawdown) were memory-only, so every restart reported
+      // total_trades 0 and a Sharpe taken from the handful of equity samples
+      // that happened to land after the boot. Persist them so the gauges
+      // describe the account instead of the last few minutes.
+      performanceMonitor: perfMonitor ? perfMonitor.state() : null,
       // [Phase R-2] Correlation findings + hypothesis list
       correlationHistory: correlationEngine ? correlationEngine.getHistory(100) : [],
       correlationStats: correlationEngine ? correlationEngine.stats() : null,
@@ -7622,6 +7694,15 @@ function restoreRunnerState() {
       eventBus.restore(raw.reflectionEventBus);
       var _ebRestored = eventBus.stats();
       console.log("[state] Restored reflection event bus: events=" + _ebRestored.currentSize + ", types=" + _ebRestored.uniqueTypes);
+    }
+    // [2026-10-21] Restore the live performance history so the Prometheus
+    // gauges survive a restart instead of reporting an empty account.
+    if (raw.performanceMonitor && perfMonitor && typeof perfMonitor.restore === "function") {
+      perfMonitor.restore(raw.performanceMonitor);
+      var _pmRestored = perfMonitor.report();
+      console.log("[state] Restored performance history: trades=" + _pmRestored.totalTrades
+        + ", equitySamples=" + _pmRestored.equitySamples
+        + ", maxDrawdown=" + _pmRestored.maxDrawdownPct + "%");
     }
     // [Phase R-2] Correlation and hypothesis engines are stateless beyond their eventBus dependency,
     // but we preserve statistical counters and accumulated findings for continuity across restarts.

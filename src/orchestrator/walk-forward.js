@@ -42,6 +42,16 @@ const DEFAULT_CONFIG = Object.freeze({
   minOosSharpe: Number(process.env.WF_MIN_OOS_SHARPE || 0.2),
   maxFitnessDegradation: Number(process.env.WF_MAX_DEGRADATION || 0.7),
   minOosTrades: Number(process.env.WF_MIN_OOS_TRADES || 2),
+  // [2026-10-21] OOS order size.
+  //
+  // The OOS backtest used to hard-code maxOrderValueKrw=300,000 against an
+  // initial equity of 10,000,000 — a 3% clip. Over a 30-bar test window that
+  // yields zero or one trade, so the OOS Sharpe was structurally 0 and every
+  // validation ended in "reject: OOS sharpe 0.000 < threshold 0.2". The
+  // verdict said nothing about the strategy; it described the order size.
+  // The clip is now a percentage of equity, sized like the live book.
+  oosOrderValuePct: Number(process.env.WF_OOS_ORDER_PCT || 15),
+  oosInitialEquity: Number(process.env.WF_OOS_INITIAL || 10000000),
   // Seed for reproducibility
   seed: process.env.WF_SEED ? Number(process.env.WF_SEED) : null,
 });
@@ -114,6 +124,7 @@ function computeFitness(result, opts) {
 // Factory
 // ---------------------------------------------------------------------------
 const { createEvolutionEngine } = require("./evolution");
+const { validateCandleData } = require("../strategy/candle-validation");
 
 function createWalkForwardValidator(options = {}) {
   const cfg = { ...DEFAULT_CONFIG, ...(options.config || {}) };
@@ -126,7 +137,12 @@ function createWalkForwardValidator(options = {}) {
 
   // Map genome to backtest args (mirrors evolution engine logic)
   function _genomeToArgs(genome, bounds) {
-    const args = { initial: 10000000, maxOrderValueKrw: 300000, slippagePct: 0.1, impactCoefficient: 0, partialFillRate: 1.0, commissionPct: 0.015 };
+    const initial = cfg.oosInitialEquity;
+    const args = {
+      initial: initial,
+      maxOrderValueKrw: Math.round(initial * (cfg.oosOrderValuePct / 100)),
+      slippagePct: 0.1, impactCoefficient: 0, partialFillRate: 1.0, commissionPct: 0.015,
+    };
     if (!bounds) return args;
     for (const param of Object.keys(bounds)) {
       const key = bounds[param].backtestKey;
@@ -139,6 +155,25 @@ function createWalkForwardValidator(options = {}) {
     const allCandles = opts.candles || candles;
     if (!allCandles || allCandles.length === 0) {
       return { verdict: "insufficient_data", reason: "no candles provided", folds: [], summary: null };
+    }
+
+    // [2026-10-21] Fail-closed input gate. A walk-forward verdict computed on
+    // unusable candles describes the data, not the strategy. Refuse to issue
+    // a verdict at all and say why.
+    const validation = validateCandleData(allCandles);
+    if (!validation.ok) {
+      const res = {
+        verdict: "insufficient_data",
+        reason: "candle data failed validation: " + validation.invalidReason,
+        folds: [],
+        summary: {
+          totalFolds: 0, validFolds: 0,
+          dataValidation: "invalid", invalidReason: validation.invalidReason,
+        },
+      };
+      lastResult = res;
+      history.push({ ts: new Date().toISOString(), verdict: res.verdict, reason: res.reason });
+      return res;
     }
 
     const folds = buildFolds(allCandles, cfg);
@@ -194,14 +229,30 @@ function createWalkForwardValidator(options = {}) {
         try {
           const args = _genomeToArgs(bestGenome, geneBounds);
           oosResult = runBacktest(fold.testCandles, args);
-          oosFitness = computeFitness(oosResult, {
-            minTrades: cfg.minOosTrades,
-            sharpeWeight: 0.5, winRateWeight: 0.3, ddPenaltyWeight: 0.2,
-          });
-          foldResult.oosFitness = oosFitness;
-          foldResult.oosSharpe = oosResult && Number.isFinite(oosResult.sharpe) ? oosResult.sharpe : null;
           foldResult.oosTrades = oosResult ? (oosResult.trades || 0) : 0;
-          foldResult.oosMaxDD = oosResult ? (oosResult.maxDrawdownPct || 0) : 0;
+          // [2026-10-21] A fold whose out-of-sample window produced no trade
+          // cannot say anything about the strategy. It is excluded from the
+          // aggregation instead of being folded in as a synthetic negative
+          // fitness, which used to make the IS->OOS degradation enormous and
+          // reject every parameter set for a reason that had nothing to do
+          // with the parameters.
+          if (foldResult.oosTrades === 0) {
+            foldResult.oosEvaluable = false;
+            foldResult.oosFitness = -Infinity;
+            foldResult.oosSharpe = null;
+            foldResult.oosMaxDD = 0;
+            foldResult.note = "out-of-sample window produced no trades";
+            oosFitness = -Infinity;
+          } else {
+            foldResult.oosEvaluable = true;
+            oosFitness = computeFitness(oosResult, {
+              minTrades: cfg.minOosTrades,
+              sharpeWeight: 0.5, winRateWeight: 0.3, ddPenaltyWeight: 0.2,
+            });
+            foldResult.oosFitness = oosFitness;
+            foldResult.oosSharpe = oosResult && Number.isFinite(oosResult.sharpe) ? oosResult.sharpe : null;
+            foldResult.oosMaxDD = oosResult ? (oosResult.maxDrawdownPct || 0) : 0;
+          }
         } catch (e) {
           foldResult.oosFitness = -Infinity;
           foldResult.oosError = e.message;
@@ -219,17 +270,23 @@ function createWalkForwardValidator(options = {}) {
     }
 
     // --- Aggregate + verdict (continued in next chunk) ---
-    return _finalize(foldResults);
+    return _finalize(foldResults, validation);
   }
 
-  function _finalize(foldResults) {
+  function _finalize(foldResults, validation) {
+    const validationMeta = (validation && validation.metadata) || {};
     const validFolds = foldResults.filter(f =>
       Number.isFinite(f.isFitness) && Number.isFinite(f.oosFitness)
     );
     if (validFolds.length === 0) {
+      // [2026-10-21] No fold was evaluable. That is missing evidence, not a
+      // strategy that failed validation — the two must not be conflated, or
+      // "insufficient data" gets reported as "your parameters are bad".
       const res = {
-        verdict: "reject",
-        reason: "no fold produced valid IS and OOS fitness",
+        verdict: "insufficient_data",
+        reason: foldResults.length === 0
+          ? "no folds were produced"
+          : "no fold produced an evaluable out-of-sample window",
         folds: foldResults,
         summary: { totalFolds: foldResults.length, validFolds: 0 },
       };
@@ -265,6 +322,15 @@ function createWalkForwardValidator(options = {}) {
       avgDegradation: Number(avgDeg.toFixed(4)),
       avgOosSharpe: Number(avgOosSharpe.toFixed(4)),
       totalOosTrades: totalOosTrades,
+      // [2026-10-21] Provenance of the verdict, so a "reject" can be traced
+      // back to the data it was computed from.
+      dataValidation: "ok",
+      dataStart: validationMeta.dataStart,
+      dataEnd: validationMeta.dataEnd,
+      symbolCount: validationMeta.symbolCount,
+      candleCount: validationMeta.candleCount,
+      validCandleRatio: validationMeta.validCandleRatio,
+      oosOrderValueKrw: Math.round(cfg.oosInitialEquity * (cfg.oosOrderValuePct / 100)),
     };
 
     const res = { verdict: verdict, reason: reason, folds: foldResults, summary: summary };

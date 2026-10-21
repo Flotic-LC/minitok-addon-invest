@@ -21,17 +21,29 @@ function generateCandles(n, startPrice, drift, vol, seed) {
   }
   const candles = [];
   let price = startPrice;
+  // [2026-10-21] The walk-forward validator now refuses to issue a verdict on
+  // data that does not validate, so the fixture must be a real candle series:
+  // a symbol, an ISO date and a coherent OHLC range.
+  const base = Date.UTC(2025, 0, 2);
   for (let i = 0; i < n; i++) {
     const ret = drift + vol * norm();
     price = price * (1 + ret);
-    const high = price * (1 + Math.abs(norm()) * 0.005);
-    const low = price * (1 - Math.abs(norm()) * 0.005);
+    const close = price;
     const open = price * (1 + (rng() - 0.5) * 0.002);
+    // [2026-10-21] The high/low must bracket the open and the close. The
+    // previous version derived them from the close alone, so a small high
+    // deviation combined with a positive open deviation produced bars whose
+    // high sat below the open - incoherent candles that the new validator
+    // correctly refuses.
+    const high = Math.max(open, close) * (1 + Math.abs(norm()) * 0.005);
+    const low = Math.min(open, close) * (1 - Math.abs(norm()) * 0.005);
     candles.push({
+      symbol: "SYNTH",
+      date: new Date(base + i * 86400000).toISOString().slice(0, 10),
       open: Number(open.toFixed(2)),
       high: Number(high.toFixed(2)),
       low: Number(low.toFixed(2)),
-      close: Number(price.toFixed(2)),
+      close: Number(close.toFixed(2)),
       volume: Math.floor(100000 + rng() * 900000),
       timestamp: Date.now() - (n - i) * 60000,
     });
@@ -40,6 +52,14 @@ function generateCandles(n, startPrice, drift, vol, seed) {
 }
 
 // --- Mock backtest function ---
+//
+// The mock only takes a position when the 5-bar momentum exceeds 1%. The
+// validator now refuses to issue a verdict when an out-of-sample window
+// contains no trades (there is nothing to judge), so the fixtures below use
+// a drift that guarantees the OOS windows actually contain trades.
+const TRADING_DRIFT = 0.01;
+const TRADING_VOL = 0.015;
+
 function mockBacktest(candles, args) {
   if (!candles || candles.length < 2) return { sharpe: 0, trades: 0, winRatePct: 0, maxDrawdownPct: 0 };
   const stopLoss = args.stopLoss || -2.0;
@@ -142,7 +162,7 @@ test("validate returns insufficient_data when too few folds possible", () => {
 });
 
 test("validate runs folds and produces verdict with summary", () => {
-  const candles = generateCandles(500, 100, 0.002, 0.015, 77);
+  const candles = generateCandles(500, 100, TRADING_DRIFT, TRADING_VOL, 77);
   const wf = createWalkForwardValidator({
     candles: candles,
     runBacktest: mockBacktest,
@@ -170,8 +190,10 @@ test("validate runs folds and produces verdict with summary", () => {
 });
 
 test("validate emits reject when OOS sharpe is below threshold", () => {
-  // Use tiny candle set + impossible threshold to force reject
-  const candles = generateCandles(400, 100, -0.005, 0.05, 88); // bearish, noisy
+  // Use an impossible threshold to force reject. The data must still trade,
+  // otherwise the verdict is "insufficient_data" - no evidence, not a
+  // strategy that failed.
+  const candles = generateCandles(400, 100, TRADING_DRIFT, TRADING_VOL, 88);
   const wf = createWalkForwardValidator({
     candles: candles,
     runBacktest: mockBacktest,
@@ -222,7 +244,7 @@ test("validateGenome returns error for missing inputs", () => {
 });
 
 test("stats and history track validation runs", () => {
-  const candles = generateCandles(400, 100, 0.001, 0.02, 55);
+  const candles = generateCandles(400, 100, TRADING_DRIFT, TRADING_VOL, 55);
   const wf = createWalkForwardValidator({
     candles: candles,
     runBacktest: mockBacktest,
@@ -242,7 +264,7 @@ test("stats and history track validation runs", () => {
 });
 
 test("clear resets history and last result", () => {
-  const candles = generateCandles(400, 100, 0.001, 0.02, 33);
+  const candles = generateCandles(400, 100, TRADING_DRIFT, TRADING_VOL, 33);
   const wf = createWalkForwardValidator({
     candles: candles,
     runBacktest: mockBacktest,
@@ -261,7 +283,7 @@ test("clear resets history and last result", () => {
 });
 
 test("onFold callback is invoked per fold", () => {
-  const candles = generateCandles(400, 100, 0.001, 0.02, 22);
+  const candles = generateCandles(400, 100, TRADING_DRIFT, TRADING_VOL, 22);
   const seen = [];
   const wf = createWalkForwardValidator({
     candles: candles,

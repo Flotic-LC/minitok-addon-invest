@@ -1,264 +1,5352 @@
 {
-  "initialEquity": 10000000,
-  "finalEquity": 10000000,
-  "totalReturnPct": 0,
-  "maxDrawdownPct": 0,
-  "sharpe": 0,
-  "trades": 0,
-  "buys": 0,
-  "sells": 0,
-  "wins": 0,
-  "losses": 0,
-  "winRatePct": 0,
+  "initialEquity": 10000,
+  "finalEquity": 8504,
+  "totalReturnPct": -14.963,
+  "maxDrawdownPct": 25.405,
+  "sharpe": -0.087,
+  "trades": 397,
+  "buys": 200,
+  "sells": 197,
+  "wins": 67,
+  "losses": 130,
+  "winRatePct": 34.01,
+  "meta": {
+    "validation": "ok",
+    "confidence": "high",
+    "invalidReason": null,
+    "dataStart": "2025-01-02",
+    "dataEnd": "2025-05-01",
+    "symbolCount": 5,
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "QQQ",
+      "SPY"
+    ],
+    "candleCount": 600,
+    "validCandleCount": 600,
+    "validCandleRatio": 1,
+    "trades": 397,
+    "costModel": {
+      "commissionPct": 0.25,
+      "slippagePct": 0.1,
+      "impactCoefficient": 0,
+      "partialFillRate": 1,
+      "maxOrderValueKrw": 1500,
+      "initialEquity": 10000
+    },
+    "minCandlesPerSymbol": 30,
+    "perSymbol": {
+      "AAPL": {
+        "candles": 120,
+        "valid": 120,
+        "first": "2025-01-02",
+        "last": "2025-05-01",
+        "duplicates": 0,
+        "outOfOrder": 0,
+        "unparseableDates": 0
+      },
+      "MSFT": {
+        "candles": 120,
+        "valid": 120,
+        "first": "2025-01-02",
+        "last": "2025-05-01",
+        "duplicates": 0,
+        "outOfOrder": 0,
+        "unparseableDates": 0
+      },
+      "NVDA": {
+        "candles": 120,
+        "valid": 120,
+        "first": "2025-01-02",
+        "last": "2025-05-01",
+        "duplicates": 0,
+        "outOfOrder": 0,
+        "unparseableDates": 0
+      },
+      "SPY": {
+        "candles": 120,
+        "valid": 120,
+        "first": "2025-01-02",
+        "last": "2025-05-01",
+        "duplicates": 0,
+        "outOfOrder": 0,
+        "unparseableDates": 0
+      },
+      "QQQ": {
+        "candles": 120,
+        "valid": 120,
+        "first": "2025-01-02",
+        "last": "2025-05-01",
+        "duplicates": 0,
+        "outOfOrder": 0,
+        "unparseableDates": 0
+      }
+    },
+    "issues": [],
+    "effectiveStops": {
+      "source": "atr",
+      "suppliedStopLossPct": -8,
+      "suppliedTakeProfitPct": 8,
+      "stopLossPct": -7.257335329232144,
+      "takeProfitPct": 3.1298906247680742,
+      "stopLossPctMax": -1.2519562499072296,
+      "takeProfitPctMax": 18.14333832308036,
+      "atrAdjustedDecisions": 342
+    }
+  },
   "slippageConfig": {
     "slippagePct": 0.1,
     "impactCoefficient": 0,
     "partialFillRate": 1,
-    "commissionPct": 0.015
+    "commissionPct": 0.25
   },
-  "totalSlippageCostKrw": 0,
+  "totalSlippageCostKrw": 1770,
   "partialFillTrades": 0,
-  "tradeLog": [],
+  "tradeLog": [
+    {
+      "date": "2025-01-04",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 432.03,
+      "price": 433.54,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "5d momentum 2.2% (not overheated); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-04",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 503.66,
+      "price": 505.42,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "5d momentum 3.3% (not overheated); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-06",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 183.41,
+      "price": 184.05,
+      "qty": 8,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.9% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-08",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 542.47,
+      "price": 544.37,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-09",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 179.24,
+      "price": 178.61,
+      "qty": 8,
+      "pnl": -43.51,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.61%; ATR-adjusted: stop=-2.28%, take=5.70%; stop-loss -2.28%"
+    },
+    {
+      "date": "2025-01-10",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 124,
+      "price": 124.43,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.0% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-11",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 456.13,
+      "price": 454.53,
+      "qty": 3,
+      "pnl": 62.97,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 5.21%; ATR-adjusted: stop=-2.01%, take=5.02%; take-profit 5.02%"
+    },
+    {
+      "date": "2025-01-11",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 119.39,
+      "price": 118.97,
+      "qty": 12,
+      "pnl": -65.54,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -4.05%; ATR-adjusted: stop=-4.14%, take=10.35%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-12",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 181.45,
+      "price": 182.09,
+      "qty": 8,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-12",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 457.88,
+      "price": 459.48,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.1% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-12",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 124.97,
+      "price": 125.41,
+      "qty": 11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 7.1% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-12",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 538.85,
+      "price": 536.97,
+      "qty": 2,
+      "pnl": -14.81,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.01%; ATR-adjusted: stop=-1.89%, take=4.73%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-13",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 177.9,
+      "price": 177.28,
+      "qty": 8,
+      "pnl": -38.46,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.30%; ATR-adjusted: stop=-2.39%, take=5.98%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-13",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 118.89,
+      "price": 118.47,
+      "qty": 11,
+      "pnl": -76.27,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -5.20%; ATR-adjusted: stop=-5.05%, take=12.63%; stop-loss -5.05%"
+    },
+    {
+      "date": "2025-01-13",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 498.33,
+      "price": 496.59,
+      "qty": 2,
+      "pnl": -17.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.40%; ATR-adjusted: stop=-2.19%, take=5.48%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-01-14",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 123.11,
+      "price": 123.54,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; ema9>ema21; default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-15",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 449.26,
+      "price": 447.69,
+      "qty": 3,
+      "pnl": -35.39,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.23%; ATR-adjusted: stop=-1.79%, take=4.47%; stop-loss -1.79%"
+    },
+    {
+      "date": "2025-01-15",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 512.1,
+      "price": 513.89,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; ema9>ema21; default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-16",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 461.44,
+      "price": 463.06,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.8% (not overheated); ema9>ema21; RSI overbought 79.60054886415612 (penalty); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-16",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 541.45,
+      "price": 543.35,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.5% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-17",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 116.8,
+      "price": 116.39,
+      "qty": 12,
+      "pnl": -85.8,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -5.46%; ATR-adjusted: stop=-5.15%, take=12.87%; stop-loss -5.15%"
+    },
+    {
+      "date": "2025-01-17",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 531.73,
+      "price": 529.87,
+      "qty": 2,
+      "pnl": -26.95,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.14%; ATR-adjusted: stop=-1.97%, take=4.91%; stop-loss -1.97%"
+    },
+    {
+      "date": "2025-01-18",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 497.9,
+      "price": 496.16,
+      "qty": 2,
+      "pnl": -35.47,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.11%; ATR-adjusted: stop=-2.16%, take=5.40%; stop-loss -2.16%"
+    },
+    {
+      "date": "2025-01-19",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 446.32,
+      "price": 444.76,
+      "qty": 3,
+      "pnl": -54.89,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.61%; ATR-adjusted: stop=-2.13%, take=5.31%; stop-loss -2.13%"
+    },
+    {
+      "date": "2025-01-19",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 538.6,
+      "price": 540.49,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.3% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-19",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 503.34,
+      "price": 505.1,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "ema9>ema21; default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-20",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 176.98,
+      "price": 177.6,
+      "qty": 8,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 2.6% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-20",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 446.56,
+      "price": 448.12,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "ema9>ema21; default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-20",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 538.71,
+      "price": 536.83,
+      "qty": 2,
+      "pnl": -7.32,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.33%; ATR-adjusted: stop=-1.66%, take=4.15%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-20",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 497.92,
+      "price": 496.18,
+      "qty": 2,
+      "pnl": -17.85,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.42%; ATR-adjusted: stop=-2.34%, take=5.84%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-01-21",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 180.58,
+      "price": 179.95,
+      "qty": 8,
+      "pnl": 18.79,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.68%; ATR-adjusted: stop=-2.76%, take=6.90%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-21",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 445.82,
+      "price": 444.26,
+      "qty": 3,
+      "pnl": -11.59,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.51%; ATR-adjusted: stop=-2.02%, take=5.06%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-01-21",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 105.69,
+      "price": 106.06,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (40) or near BB lower"
+    },
+    {
+      "date": "2025-01-21",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 543.93,
+      "price": 545.84,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 2.3% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-22",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 180.34,
+      "price": 180.97,
+      "qty": 8,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 4.9% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-22",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 452.32,
+      "price": 453.9,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; ema9>ema21; pullback: uptrend intact, RSI 56 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-01-22",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 109.41,
+      "price": 109.03,
+      "qty": 14,
+      "pnl": 41.54,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.16%; ATR-adjusted: stop=-7.26%, take=18.14%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-22",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 540.89,
+      "price": 539,
+      "qty": 2,
+      "pnl": -13.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.91%; ATR-adjusted: stop=-1.54%, take=3.85%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-23",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 180.37,
+      "price": 179.74,
+      "qty": 8,
+      "pnl": -9.86,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.33%; ATR-adjusted: stop=-2.30%, take=5.75%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-23",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 115.75,
+      "price": 116.16,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 9.3% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-23",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 547.13,
+      "price": 549.05,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.6% (not overheated); pullback: uptrend intact, RSI 56 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-01-23",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 487.58,
+      "price": 489.29,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (41) or near BB lower"
+    },
+    {
+      "date": "2025-01-24",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 187.32,
+      "price": 187.98,
+      "qty": 7,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 5.8% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-24",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 114.38,
+      "price": 113.98,
+      "qty": 12,
+      "pnl": -26.11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.53%; ATR-adjusted: stop=-6.68%, take=16.70%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-24",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 542.18,
+      "price": 540.28,
+      "qty": 2,
+      "pnl": -17.53,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.25%; ATR-adjusted: stop=-1.58%, take=3.95%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-24",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 481.48,
+      "price": 479.8,
+      "qty": 3,
+      "pnl": -28.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.60%; ATR-adjusted: stop=-2.51%, take=6.28%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-25",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 111.4,
+      "price": 111.79,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 5.4% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-25",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 542.2,
+      "price": 544.1,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; pullback: uptrend intact, RSI 48 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-01-26",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 108.09,
+      "price": 107.71,
+      "qty": 13,
+      "pnl": -53.02,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.31%; ATR-adjusted: stop=-6.44%, take=16.11%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-26",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 540.69,
+      "price": 538.8,
+      "qty": 2,
+      "pnl": -10.6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.63%; ATR-adjusted: stop=-1.45%, take=3.63%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-26",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 493.27,
+      "price": 495,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-27",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 448.66,
+      "price": 447.09,
+      "qty": 3,
+      "pnl": -20.44,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.16%; ATR-adjusted: stop=-2.29%, take=5.72%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-01-27",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 114.86,
+      "price": 115.26,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-27",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 539.81,
+      "price": 541.7,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; below VWAP (cheap intraday); pullback: uptrend intact, RSI 51 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-01-27",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 506.64,
+      "price": 504.87,
+      "qty": 3,
+      "pnl": 29.61,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.35%; ATR-adjusted: stop=-2.49%, take=6.22%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-28",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 454.01,
+      "price": 455.6,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; 5d momentum 0.2% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 50 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-01-28",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 114.72,
+      "price": 114.32,
+      "qty": 13,
+      "pnl": -12.27,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.47%; ATR-adjusted: stop=-5.83%, take=14.57%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-28",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 533.35,
+      "price": 531.48,
+      "qty": 2,
+      "pnl": -20.43,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.54%; ATR-adjusted: stop=-1.49%, take=3.71%; stop-loss -1.49%"
+    },
+    {
+      "date": "2025-01-28",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 518.98,
+      "price": 520.8,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 7.8% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-29",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 453.03,
+      "price": 451.45,
+      "qty": 3,
+      "pnl": -12.46,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.56%; ATR-adjusted: stop=-2.25%, take=5.63%; price<sma5 + MACD negative; MACD histogram negative"
+    },
+    {
+      "date": "2025-01-29",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 115.37,
+      "price": 115.77,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.6% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-29",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 532.37,
+      "price": 534.23,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-01-30",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 440.81,
+      "price": 442.35,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "ema9>ema21; near lower Bollinger band; below VWAP (cheap intraday); pullback: uptrend intact, RSI 36 cooled, price near sma5, above sma20 support; mean_reversion evidence ignored (negative edge - set SIG_MEAN_REVERSION_ENABLED=true to enable)"
+    },
+    {
+      "date": "2025-01-30",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 114.6,
+      "price": 114.2,
+      "qty": 12,
+      "pnl": -18.9,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.01%; ATR-adjusted: stop=-5.68%, take=14.20%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-30",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 541.14,
+      "price": 539.25,
+      "qty": 2,
+      "pnl": 10.03,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.29%; ATR-adjusted: stop=-1.49%, take=3.72%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-01-31",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 201.85,
+      "price": 201.14,
+      "qty": 7,
+      "pnl": 92.18,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 7.38%; ATR-adjusted: stop=-2.55%, take=6.38%; take-profit 6.38%"
+    },
+    {
+      "date": "2025-01-31",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 442.17,
+      "price": 440.62,
+      "qty": 3,
+      "pnl": -5.19,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.04%; ATR-adjusted: stop=-2.36%, take=5.89%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-01-31",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 119.61,
+      "price": 120.03,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.1% (not overheated); MACD histogram positive"
+    },
+    {
+      "date": "2025-01-31",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 546.03,
+      "price": 547.94,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.2% (not overheated); MACD histogram positive; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-01",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 197.64,
+      "price": 198.33,
+      "qty": 7,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.6% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 85.72222222222219 (penalty)"
+    },
+    {
+      "date": "2025-02-01",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 121.95,
+      "price": 121.52,
+      "qty": 12,
+      "pnl": 17.93,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.60%; ATR-adjusted: stop=-5.44%, take=13.59%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-02",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 194.65,
+      "price": 193.97,
+      "qty": 7,
+      "pnl": -30.54,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.86%; ATR-adjusted: stop=-2.76%, take=6.90%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-02",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 436.02,
+      "price": 437.55,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (42) or near BB lower"
+    },
+    {
+      "date": "2025-02-02",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 121.19,
+      "price": 121.61,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 5.0% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 70.81404846174787 (penalty)"
+    },
+    {
+      "date": "2025-02-02",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 514.29,
+      "price": 512.49,
+      "qty": 2,
+      "pnl": -16.61,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.25%; ATR-adjusted: stop=-2.11%, take=5.29%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-03",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 195.4,
+      "price": 196.08,
+      "qty": 7,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 77.65765765765767 (penalty)"
+    },
+    {
+      "date": "2025-02-03",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 440.13,
+      "price": 438.59,
+      "qty": 3,
+      "pnl": 3.13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.59%; ATR-adjusted: stop=-2.28%, take=5.69%; price<sma5 + MACD negative; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-03",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 539.82,
+      "price": 537.93,
+      "qty": 2,
+      "pnl": -20.02,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.48%; ATR-adjusted: stop=-1.36%, take=3.41%; stop-loss -1.36%"
+    },
+    {
+      "date": "2025-02-03",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 516.49,
+      "price": 518.3,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-02-04",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 442.88,
+      "price": 444.43,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.2% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-04",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 535.64,
+      "price": 537.52,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; below VWAP (cheap intraday); pullback: uptrend intact, RSI 42 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-05",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 450.59,
+      "price": 449.01,
+      "qty": 3,
+      "pnl": 13.75,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.39%; ATR-adjusted: stop=-2.34%, take=5.86%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-05",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 124,
+      "price": 123.57,
+      "qty": 12,
+      "pnl": 23.42,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.96%; ATR-adjusted: stop=-5.08%, take=12.70%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-05",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 535,
+      "price": 533.13,
+      "qty": 2,
+      "pnl": -8.77,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.47%; ATR-adjusted: stop=-1.30%, take=3.25%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-06",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 453.69,
+      "price": 455.28,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 4.1% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-06",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 126.15,
+      "price": 126.59,
+      "qty": 11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.1% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-02-06",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 519.8,
+      "price": 521.62,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 26.378565254969814; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (26) or near BB lower"
+    },
+    {
+      "date": "2025-02-06",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 511.25,
+      "price": 509.46,
+      "qty": 2,
+      "pnl": -17.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.36%; ATR-adjusted: stop=-1.94%, take=4.84%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-07",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 464.1,
+      "price": 462.48,
+      "qty": 3,
+      "pnl": 21.59,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.94%; ATR-adjusted: stop=-2.36%, take=5.90%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-07",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 508.66,
+      "price": 506.88,
+      "qty": 2,
+      "pnl": -29.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.48%; ATR-adjusted: stop=-1.75%, take=4.38%; stop-loss -1.75%"
+    },
+    {
+      "date": "2025-02-07",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 519.33,
+      "price": 521.15,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.5% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 76.20102450505327 (penalty)"
+    },
+    {
+      "date": "2025-02-08",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 463.48,
+      "price": 465.1,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.7% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-08",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 123.2,
+      "price": 122.77,
+      "qty": 11,
+      "pnl": -42.05,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.68%; ATR-adjusted: stop=-4.58%, take=11.44%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-08",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 510.1,
+      "price": 511.89,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 25.48120989917507; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (25) or near BB lower"
+    },
+    {
+      "date": "2025-02-09",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 115.73,
+      "price": 116.14,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-02-09",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 516.63,
+      "price": 514.82,
+      "qty": 2,
+      "pnl": 5.87,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.93%; ATR-adjusted: stop=-1.97%, take=4.92%; price<sma5 + MACD negative; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-10",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 210.18,
+      "price": 209.44,
+      "qty": 7,
+      "pnl": 93.52,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 7.19%; ATR-adjusted: stop=-2.52%, take=6.29%; take-profit 6.29%"
+    },
+    {
+      "date": "2025-02-10",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 113.72,
+      "price": 113.32,
+      "qty": 12,
+      "pnl": -33.76,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.08%; ATR-adjusted: stop=-4.92%, take=12.29%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-11",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 203.51,
+      "price": 204.22,
+      "qty": 7,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.0% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-11",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 116.77,
+      "price": 117.18,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-02-12",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 207.87,
+      "price": 207.14,
+      "qty": 7,
+      "pnl": 20.44,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.79%; ATR-adjusted: stop=-3.09%, take=7.73%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-12",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 113.13,
+      "price": 112.73,
+      "qty": 12,
+      "pnl": -53.34,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.46%; ATR-adjusted: stop=-5.59%, take=13.98%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-12",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 512.52,
+      "price": 514.32,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.5% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-12",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 524.01,
+      "price": 522.18,
+      "qty": 2,
+      "pnl": 2.06,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.55%; ATR-adjusted: stop=-1.63%, take=4.07%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-13",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 215.39,
+      "price": 216.14,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.2% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-13",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 113.11,
+      "price": 113.51,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-13",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 508.93,
+      "price": 507.15,
+      "qty": 2,
+      "pnl": -14.33,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.05%; ATR-adjusted: stop=-1.97%, take=4.94%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-13",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 530.76,
+      "price": 532.62,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.7% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 58 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-14",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 219.08,
+      "price": 218.31,
+      "qty": 6,
+      "pnl": 13.02,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.36%; ATR-adjusted: stop=-3.09%, take=7.73%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-14",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 115.89,
+      "price": 115.48,
+      "qty": 13,
+      "pnl": 25.72,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.10%; ATR-adjusted: stop=-5.40%, take=13.49%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-14",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 513.43,
+      "price": 515.23,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.2% (not overheated); RSI oversold 26.93831352574982; below VWAP (cheap intraday); mean_reversion: RSI oversold (27) or near BB lower"
+    },
+    {
+      "date": "2025-02-14",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 525.81,
+      "price": 523.97,
+      "qty": 2,
+      "pnl": -17.3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.28%; ATR-adjusted: stop=-1.79%, take=4.47%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-15",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 221.08,
+      "price": 221.85,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 8.6% (not overheated); ema9>ema21; RSI overbought 76.28981606101392 (penalty); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-15",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 466.28,
+      "price": 464.65,
+      "qty": 3,
+      "pnl": -1.36,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.25%; ATR-adjusted: stop=-2.27%, take=5.67%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-15",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 118.14,
+      "price": 118.55,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.2% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-15",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 519.88,
+      "price": 518.06,
+      "qty": 2,
+      "pnl": 5.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.90%; ATR-adjusted: stop=-2.05%, take=5.11%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-15",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 526.66,
+      "price": 528.5,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 55 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-16",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 473.42,
+      "price": 475.08,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 75.35937076213725 (penalty)"
+    },
+    {
+      "date": "2025-02-16",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 118.01,
+      "price": 117.6,
+      "qty": 12,
+      "pnl": -11.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.46%; ATR-adjusted: stop=-5.08%, take=12.70%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-16",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 510.39,
+      "price": 512.18,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 29.27635606709927; below VWAP (cheap intraday); mean_reversion: RSI oversold (29) or near BB lower"
+    },
+    {
+      "date": "2025-02-16",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 521.9,
+      "price": 520.07,
+      "qty": 2,
+      "pnl": -16.86,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.25%; ATR-adjusted: stop=-1.79%, take=4.46%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-17",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 121.03,
+      "price": 121.45,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 7.0% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-17",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 510.42,
+      "price": 508.63,
+      "qty": 2,
+      "pnl": -7.09,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.34%; ATR-adjusted: stop=-2.16%, take=5.39%; price<sma5 + MACD negative; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-17",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 513.37,
+      "price": 515.17,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 48 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-18",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 462.4,
+      "price": 460.78,
+      "qty": 3,
+      "pnl": -42.89,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.67%; ATR-adjusted: stop=-2.34%, take=5.86%; stop-loss -2.34%"
+    },
+    {
+      "date": "2025-02-18",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 122.94,
+      "price": 122.51,
+      "qty": 12,
+      "pnl": 12.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.22%; ATR-adjusted: stop=-4.62%, take=11.55%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-18",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 517.38,
+      "price": 519.19,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.8% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-18",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 515.56,
+      "price": 513.76,
+      "qty": 2,
+      "pnl": -2.82,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.08%; ATR-adjusted: stop=-2.05%, take=5.12%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-19",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 459.26,
+      "price": 460.87,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-02-19",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 125.77,
+      "price": 126.21,
+      "qty": 11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 6.5% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-19",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 516.9,
+      "price": 515.09,
+      "qty": 2,
+      "pnl": -8.2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.44%; ATR-adjusted: stop=-2.20%, take=5.50%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-19",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 513.6,
+      "price": 515.4,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "ema9>ema21; pullback: uptrend intact, RSI 47 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-20",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 450.12,
+      "price": 448.55,
+      "qty": 3,
+      "pnl": -36.97,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.33%; ATR-adjusted: stop=-2.46%, take=6.15%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-20",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 125.12,
+      "price": 124.68,
+      "qty": 11,
+      "pnl": -16.81,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.86%; ATR-adjusted: stop=-4.03%, take=10.08%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-20",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 525.9,
+      "price": 527.74,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.0% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-20",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 506.15,
+      "price": 504.38,
+      "qty": 2,
+      "pnl": -22.04,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.79%; ATR-adjusted: stop=-2.11%, take=5.28%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-21",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 222.23,
+      "price": 221.45,
+      "qty": 6,
+      "pnl": -2.41,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.17%; ATR-adjusted: stop=-3.53%, take=8.82%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-21",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 125.78,
+      "price": 126.22,
+      "qty": 11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.9% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 47 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-02-21",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 529.94,
+      "price": 528.09,
+      "qty": 2,
+      "pnl": 0.69,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.42%; ATR-adjusted: stop=-1.80%, take=4.51%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-21",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 491.5,
+      "price": 493.22,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (33) or near BB lower"
+    },
+    {
+      "date": "2025-02-22",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 221.65,
+      "price": 222.43,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 71.54545454545455 (penalty)"
+    },
+    {
+      "date": "2025-02-22",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 118.06,
+      "price": 117.65,
+      "qty": 11,
+      "pnl": -94.31,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -6.47%; ATR-adjusted: stop=-4.32%, take=10.79%; stop-loss -4.32%"
+    },
+    {
+      "date": "2025-02-22",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 528.57,
+      "price": 530.42,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.2% (not overheated); MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-02-22",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 493.56,
+      "price": 491.83,
+      "qty": 3,
+      "pnl": -4.16,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.07%; ATR-adjusted: stop=-2.42%, take=6.05%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-23",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 223.38,
+      "price": 222.6,
+      "qty": 6,
+      "pnl": 1.03,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.43%; ATR-adjusted: stop=-3.08%, take=7.71%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-23",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 454.52,
+      "price": 456.11,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-23",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 116.51,
+      "price": 116.92,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-23",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 474.11,
+      "price": 475.77,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 21.651571656899222; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (22) or near BB lower"
+    },
+    {
+      "date": "2025-02-24",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 231.26,
+      "price": 232.07,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.6% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 70.1221840397098 (penalty)"
+    },
+    {
+      "date": "2025-02-24",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 458.8,
+      "price": 457.2,
+      "qty": 3,
+      "pnl": 3.25,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.59%; ATR-adjusted: stop=-2.26%, take=5.65%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-24",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 114.9,
+      "price": 114.5,
+      "qty": 12,
+      "pnl": -29.04,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.73%; ATR-adjusted: stop=-3.89%, take=9.72%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-24",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 469.2,
+      "price": 467.56,
+      "qty": 3,
+      "pnl": -24.63,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.38%; ATR-adjusted: stop=-2.82%, take=7.06%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-25",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 456.38,
+      "price": 457.98,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.8% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-25",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 113.87,
+      "price": 114.27,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-25",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 466.03,
+      "price": 467.66,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 12.679221057136715; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (13) or near BB lower"
+    },
+    {
+      "date": "2025-02-26",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 448.96,
+      "price": 447.39,
+      "qty": 3,
+      "pnl": -31.77,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.97%; ATR-adjusted: stop=-2.19%, take=5.48%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-26",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 113.44,
+      "price": 113.04,
+      "qty": 13,
+      "pnl": -15.93,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.73%; ATR-adjusted: stop=-3.32%, take=8.31%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-26",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 476,
+      "price": 474.34,
+      "qty": 3,
+      "pnl": 20.02,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.78%; ATR-adjusted: stop=-2.80%, take=7.00%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-27",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 463.44,
+      "price": 465.06,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 2.0% (not overheated); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-27",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 116.67,
+      "price": 117.08,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.1% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-02-27",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 526.64,
+      "price": 524.8,
+      "qty": 2,
+      "pnl": -11.25,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.71%; ATR-adjusted: stop=-1.80%, take=4.51%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-02-27",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 464.63,
+      "price": 466.26,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 15.653890100758275; below VWAP (cheap intraday); mean_reversion: RSI oversold (16) or near BB lower"
+    },
+    {
+      "date": "2025-02-28",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 238.07,
+      "price": 237.24,
+      "qty": 6,
+      "pnl": 31,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.59%; ATR-adjusted: stop=-2.66%, take=6.64%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-28",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 472.7,
+      "price": 471.05,
+      "qty": 3,
+      "pnl": 17.95,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.64%; ATR-adjusted: stop=-2.62%, take=6.55%; MACD histogram negative"
+    },
+    {
+      "date": "2025-02-28",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 120.27,
+      "price": 119.85,
+      "qty": 12,
+      "pnl": 33.25,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.73%; ATR-adjusted: stop=-3.74%, take=9.34%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-02-28",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 531.26,
+      "price": 533.12,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-02-28",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 483.6,
+      "price": 481.91,
+      "qty": 3,
+      "pnl": 46.95,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.72%; ATR-adjusted: stop=-3.38%, take=8.45%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-01",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 238.72,
+      "price": 239.56,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.4% (not overheated); ema9>ema21; RSI overbought 71.10047846889952 (penalty); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-01",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 473.07,
+      "price": 474.73,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.7% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-01",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 117.8,
+      "price": 118.21,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.5% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-01",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 518.88,
+      "price": 517.07,
+      "qty": 2,
+      "pnl": -32.11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.67%; ATR-adjusted: stop=-1.96%, take=4.89%; stop-loss -1.96%"
+    },
+    {
+      "date": "2025-03-01",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 496.63,
+      "price": 498.37,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.6% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-02",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 247.72,
+      "price": 246.85,
+      "qty": 6,
+      "pnl": 43.78,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.41%; ATR-adjusted: stop=-2.76%, take=6.90%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-02",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 479.02,
+      "price": 477.34,
+      "qty": 3,
+      "pnl": 7.85,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.90%; ATR-adjusted: stop=-2.28%, take=5.70%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-02",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 122.3,
+      "price": 121.87,
+      "qty": 12,
+      "pnl": 43.92,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.46%; ATR-adjusted: stop=-4.26%, take=10.64%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-02",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 522.58,
+      "price": 524.41,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-02",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 492.6,
+      "price": 490.88,
+      "qty": 3,
+      "pnl": -22.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.16%; ATR-adjusted: stop=-3.49%, take=8.72%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-03",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 254.38,
+      "price": 255.27,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 6.7% (not overheated); ema9>ema21; RSI overbought 74.9533485382542 (penalty); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-03",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 470.54,
+      "price": 472.19,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; 5d momentum 1.5% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 50 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-03",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 125.06,
+      "price": 125.5,
+      "qty": 11,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 7.2% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-03",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 520.54,
+      "price": 518.72,
+      "qty": 2,
+      "pnl": -11.38,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.74%; ATR-adjusted: stop=-1.89%, take=4.71%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-03",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 491.18,
+      "price": 492.9,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 5.7% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-04",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 257.22,
+      "price": 256.32,
+      "qty": 5,
+      "pnl": 5.25,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.76%; ATR-adjusted: stop=-2.84%, take=7.10%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-04",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 464.42,
+      "price": 462.8,
+      "qty": 3,
+      "pnl": -28.18,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.65%; ATR-adjusted: stop=-2.40%, take=6.00%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-04",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 526.05,
+      "price": 527.89,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-04",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 493.04,
+      "price": 491.32,
+      "qty": 3,
+      "pnl": -4.75,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.03%; ATR-adjusted: stop=-3.31%, take=8.28%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-05",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 252.41,
+      "price": 253.29,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 5.7% (not overheated); ema9>ema21; RSI overbought 71.95757350204687 (penalty); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-05",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 469.68,
+      "price": 471.33,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-05",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 119.26,
+      "price": 118.84,
+      "qty": 11,
+      "pnl": -73.21,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -4.97%; ATR-adjusted: stop=-4.10%, take=10.25%; stop-loss -4.10%"
+    },
+    {
+      "date": "2025-03-05",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 523.52,
+      "price": 521.69,
+      "qty": 2,
+      "pnl": -12.41,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.83%; ATR-adjusted: stop=-1.89%, take=4.72%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-06",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 247.27,
+      "price": 246.41,
+      "qty": 5,
+      "pnl": -34.44,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.38%; ATR-adjusted: stop=-3.25%, take=8.14%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-06",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 465.33,
+      "price": 463.7,
+      "qty": 3,
+      "pnl": -22.87,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.27%; ATR-adjusted: stop=-2.32%, take=5.81%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-06",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 114.83,
+      "price": 115.23,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-06",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 522.42,
+      "price": 524.25,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-07",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 247.12,
+      "price": 247.99,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 73.72735938989514 (penalty)"
+    },
+    {
+      "date": "2025-03-07",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 469.31,
+      "price": 470.95,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-07",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 111.36,
+      "price": 110.97,
+      "qty": 13,
+      "pnl": -55.4,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.36%; ATR-adjusted: stop=-5.28%, take=13.20%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-07",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 514.76,
+      "price": 512.96,
+      "qty": 2,
+      "pnl": -22.58,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.81%; ATR-adjusted: stop=-1.79%, take=4.46%; stop-loss -1.79%"
+    },
+    {
+      "date": "2025-03-07",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 484.01,
+      "price": 485.71,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-08",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 248.17,
+      "price": 247.3,
+      "qty": 6,
+      "pnl": -4.1,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.07%; ATR-adjusted: stop=-3.05%, take=7.62%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-08",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 107.23,
+      "price": 107.61,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (36) or near BB lower"
+    },
+    {
+      "date": "2025-03-08",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 483.49,
+      "price": 481.8,
+      "qty": 3,
+      "pnl": -11.72,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.46%; ATR-adjusted: stop=-3.17%, take=7.92%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-09",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 247.6,
+      "price": 248.47,
+      "qty": 6,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 73.39644513137557 (penalty)"
+    },
+    {
+      "date": "2025-03-09",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 106.96,
+      "price": 106.59,
+      "qty": 13,
+      "pnl": -13.26,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.60%; ATR-adjusted: stop=-5.01%, take=12.52%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-09",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 484.81,
+      "price": 486.51,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.2% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-10",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 507.36,
+      "price": 509.14,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (30) or near BB lower"
+    },
+    {
+      "date": "2025-03-10",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 478.8,
+      "price": 477.13,
+      "qty": 3,
+      "pnl": -28.15,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.58%; ATR-adjusted: stop=-2.66%, take=6.66%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-11",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 99.61,
+      "price": 99.96,
+      "qty": 15,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (33) or near BB lower"
+    },
+    {
+      "date": "2025-03-11",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 514.17,
+      "price": 512.37,
+      "qty": 2,
+      "pnl": 6.47,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.99%; ATR-adjusted: stop=-1.89%, take=4.72%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-11",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 486.04,
+      "price": 487.74,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.4% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-12",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 100.77,
+      "price": 100.42,
+      "qty": 15,
+      "pnl": 6.88,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.81%; ATR-adjusted: stop=-6.21%, take=15.53%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-12",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 514.17,
+      "price": 515.97,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-12",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 494.82,
+      "price": 493.09,
+      "qty": 3,
+      "pnl": 16.04,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.45%; ATR-adjusted: stop=-2.74%, take=6.86%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-13",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 106.16,
+      "price": 106.53,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-13",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 520.45,
+      "price": 518.63,
+      "qty": 2,
+      "pnl": 5.32,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.87%; ATR-adjusted: stop=-1.74%, take=4.36%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-13",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 493.54,
+      "price": 495.27,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.8% (not overheated); MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-14",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 506.8,
+      "price": 505.03,
+      "qty": 3,
+      "pnl": 102.22,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 7.61%; ATR-adjusted: stop=-2.53%, take=6.33%; take-profit 6.33%"
+    },
+    {
+      "date": "2025-03-14",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 105.94,
+      "price": 105.57,
+      "qty": 14,
+      "pnl": -13.47,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.56%; ATR-adjusted: stop=-5.67%, take=14.16%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-14",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 525.45,
+      "price": 527.29,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.6% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-14",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 497.41,
+      "price": 495.67,
+      "qty": 3,
+      "pnl": 1.21,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.43%; ATR-adjusted: stop=-1.97%, take=4.93%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-15",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 268.71,
+      "price": 267.77,
+      "qty": 6,
+      "pnl": 115.82,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 8.15%; ATR-adjusted: stop=-3.80%, take=9.50%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-15",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 503.65,
+      "price": 505.41,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.8% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-15",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 104.67,
+      "price": 105.04,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 5.1% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-15",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 523.63,
+      "price": 521.8,
+      "qty": 2,
+      "pnl": -10.98,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.69%; ATR-adjusted: stop=-1.43%, take=3.58%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-15",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 500.97,
+      "price": 502.72,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.1% (not overheated); MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-16",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 262.82,
+      "price": 263.74,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.9% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-16",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 495.33,
+      "price": 493.6,
+      "qty": 2,
+      "pnl": -23.63,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.00%; ATR-adjusted: stop=-2.50%, take=6.26%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-16",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 112.04,
+      "price": 111.65,
+      "qty": 14,
+      "pnl": 92.56,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 6.67%; ATR-adjusted: stop=-5.97%, take=14.93%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-16",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 515.46,
+      "price": 517.27,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "5d momentum 0.3% (not overheated); below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-17",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 266.97,
+      "price": 266.04,
+      "qty": 5,
+      "pnl": 11.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.22%; ATR-adjusted: stop=-3.28%, take=8.19%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-17",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 489.43,
+      "price": 491.14,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-17",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 111.41,
+      "price": 111.8,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 4.9% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-17",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 524.05,
+      "price": 522.22,
+      "qty": 2,
+      "pnl": 9.9,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.31%; ATR-adjusted: stop=-1.76%, take=4.41%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-18",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 263.92,
+      "price": 264.84,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 56 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-18",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 473.19,
+      "price": 471.54,
+      "qty": 3,
+      "pnl": -58.83,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.66%; ATR-adjusted: stop=-2.80%, take=6.99%; stop-loss -2.80%"
+    },
+    {
+      "date": "2025-03-18",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 115.25,
+      "price": 114.85,
+      "qty": 13,
+      "pnl": 39.61,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.09%; ATR-adjusted: stop=-5.53%, take=13.83%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-18",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 530.61,
+      "price": 532.47,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.0% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 54 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-19",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 264.13,
+      "price": 263.21,
+      "qty": 5,
+      "pnl": -8.19,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.27%; ATR-adjusted: stop=-3.03%, take=7.57%; price<sma5 + MACD negative; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-19",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 469.84,
+      "price": 471.49,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-19",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 115.28,
+      "price": 115.68,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-19",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 506.29,
+      "price": 504.52,
+      "qty": 2,
+      "pnl": 3.59,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.71%; ATR-adjusted: stop=-2.04%, take=5.11%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-20",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 261.34,
+      "price": 262.26,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-20",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 105.66,
+      "price": 105.29,
+      "qty": 12,
+      "pnl": -124.72,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -8.66%; ATR-adjusted: stop=-5.56%, take=13.91%; stop-loss -5.56%"
+    },
+    {
+      "date": "2025-03-20",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 520.29,
+      "price": 518.47,
+      "qty": 2,
+      "pnl": -28,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.29%; ATR-adjusted: stop=-1.96%, take=4.89%; stop-loss -1.96%"
+    },
+    {
+      "date": "2025-03-20",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 505.81,
+      "price": 507.58,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-21",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 257.69,
+      "price": 256.79,
+      "qty": 5,
+      "pnl": -27.33,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.74%; ATR-adjusted: stop=-3.12%, take=7.80%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-21",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 488.63,
+      "price": 486.92,
+      "qty": 3,
+      "pnl": 46.31,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 3.64%; ATR-adjusted: stop=-3.17%, take=7.93%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-21",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 106.43,
+      "price": 106.8,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-21",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 530.37,
+      "price": 532.23,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.2% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-03-21",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 495.14,
+      "price": 493.41,
+      "qty": 2,
+      "pnl": -28.35,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.45%; ATR-adjusted: stop=-2.20%, take=5.49%; stop-loss -2.20%"
+    },
+    {
+      "date": "2025-03-22",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 264.07,
+      "price": 264.99,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.1% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-22",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 492.93,
+      "price": 494.66,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 4.2% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-22",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 102.5,
+      "price": 102.14,
+      "qty": 14,
+      "pnl": -65.26,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -4.03%; ATR-adjusted: stop=-5.64%, take=14.09%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-22",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 493.23,
+      "price": 494.96,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-23",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 254.75,
+      "price": 253.86,
+      "qty": 5,
+      "pnl": -55.68,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.87%; ATR-adjusted: stop=-3.85%, take=9.61%; stop-loss -3.85%"
+    },
+    {
+      "date": "2025-03-23",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 495.78,
+      "price": 494.05,
+      "qty": 3,
+      "pnl": -1.83,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.23%; ATR-adjusted: stop=-2.99%, take=7.47%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-23",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 107.54,
+      "price": 107.92,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; MACD histogram positive; below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-24",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 259.32,
+      "price": 260.23,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 50 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-24",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 502.78,
+      "price": 504.54,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.2% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-24",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 109.27,
+      "price": 108.89,
+      "qty": 13,
+      "pnl": 12.63,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.25%; ATR-adjusted: stop=-6.42%, take=16.05%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-25",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 262.66,
+      "price": 261.74,
+      "qty": 5,
+      "pnl": 7.57,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.93%; ATR-adjusted: stop=-3.32%, take=8.30%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-25",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 501.29,
+      "price": 499.54,
+      "qty": 2,
+      "pnl": -10.01,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.64%; ATR-adjusted: stop=-2.66%, take=6.64%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-25",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 111.75,
+      "price": 112.14,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 5.0% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-26",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 265.98,
+      "price": 266.91,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.7% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-26",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 505.88,
+      "price": 507.65,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.6% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 51 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-26",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 106.89,
+      "price": 106.52,
+      "qty": 13,
+      "pnl": -73.13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -4.68%; ATR-adjusted: stop=-6.01%, take=15.03%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-26",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 529.79,
+      "price": 527.94,
+      "qty": 2,
+      "pnl": -8.58,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.46%; ATR-adjusted: stop=-2.06%, take=5.15%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-26",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 491.28,
+      "price": 489.56,
+      "qty": 3,
+      "pnl": -16.19,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.74%; ATR-adjusted: stop=-2.23%, take=5.58%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-27",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 264.89,
+      "price": 263.96,
+      "qty": 5,
+      "pnl": -14.74,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.76%; ATR-adjusted: stop=-3.17%, take=7.92%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-27",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 503.59,
+      "price": 501.83,
+      "qty": 2,
+      "pnl": -11.65,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.80%; ATR-adjusted: stop=-2.34%, take=5.84%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-27",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 105.64,
+      "price": 106.01,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-27",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 529.56,
+      "price": 531.41,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-28",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 262.66,
+      "price": 263.58,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; 5d momentum 1.3% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 49 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-28",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 498.55,
+      "price": 500.3,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 45 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-03-28",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 104.97,
+      "price": 104.6,
+      "qty": 14,
+      "pnl": -19.7,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.98%; ATR-adjusted: stop=-5.86%, take=14.65%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-28",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 523.2,
+      "price": 521.37,
+      "qty": 2,
+      "pnl": -20.09,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.55%; ATR-adjusted: stop=-1.94%, take=4.84%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 265.98,
+      "price": 265.05,
+      "qty": 5,
+      "pnl": 7.35,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.91%; ATR-adjusted: stop=-2.89%, take=7.22%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 505.76,
+      "price": 503.99,
+      "qty": 2,
+      "pnl": 7.39,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.09%; ATR-adjusted: stop=-2.49%, take=6.24%; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 102.25,
+      "price": 102.61,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "MACD histogram positive; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 522.54,
+      "price": 524.37,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 487.4,
+      "price": 489.11,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-30",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 272,
+      "price": 272.95,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.3% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-30",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 524.57,
+      "price": 526.41,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.7% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-03-30",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 94.45,
+      "price": 94.12,
+      "qty": 14,
+      "pnl": -118.84,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -7.95%; ATR-adjusted: stop=-6.32%, take=15.79%; stop-loss -6.32%"
+    },
+    {
+      "date": "2025-03-30",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 514.09,
+      "price": 512.29,
+      "qty": 2,
+      "pnl": -24.16,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.96%; ATR-adjusted: stop=-1.94%, take=4.85%; stop-loss -1.94%"
+    },
+    {
+      "date": "2025-03-30",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 486.11,
+      "price": 484.41,
+      "qty": 3,
+      "pnl": -14.09,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.61%; ATR-adjusted: stop=-2.72%, take=6.79%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-03-31",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 265.52,
+      "price": 264.59,
+      "qty": 5,
+      "pnl": -41.81,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.72%; ATR-adjusted: stop=-2.92%, take=7.30%; price<sma5 + MACD negative; MACD histogram negative"
+    },
+    {
+      "date": "2025-03-31",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 506.55,
+      "price": 508.32,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (38) or near BB lower"
+    },
+    {
+      "date": "2025-03-31",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 461.77,
+      "price": 463.39,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 21.547067901234556; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (22) or near BB lower"
+    },
+    {
+      "date": "2025-04-01",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 263.56,
+      "price": 264.48,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; 5d momentum 0.3% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 50 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-01",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 93.99,
+      "price": 94.32,
+      "qty": 15,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 26.47189021691014; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (26) or near BB lower"
+    },
+    {
+      "date": "2025-04-01",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 503.12,
+      "price": 501.36,
+      "qty": 2,
+      "pnl": -13.93,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.02%; ATR-adjusted: stop=-1.88%, take=4.71%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-01",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 455.68,
+      "price": 454.09,
+      "qty": 3,
+      "pnl": -27.9,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.66%; ATR-adjusted: stop=-3.37%, take=8.42%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-02",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 262.77,
+      "price": 261.85,
+      "qty": 5,
+      "pnl": -13.16,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.65%; ATR-adjusted: stop=-2.98%, take=7.46%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-02",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 95.86,
+      "price": 95.52,
+      "qty": 15,
+      "pnl": 18.08,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.63%; ATR-adjusted: stop=-7.12%, take=17.80%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-02",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 500.75,
+      "price": 502.5,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "RSI oversold 27.77696899111956; near lower Bollinger band; below VWAP (cheap intraday); mean_reversion: RSI oversold (28) or near BB lower"
+    },
+    {
+      "date": "2025-04-03",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 265.77,
+      "price": 266.7,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 54 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-03",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 525.96,
+      "price": 524.12,
+      "qty": 2,
+      "pnl": -4.57,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.08%; ATR-adjusted: stop=-1.99%, take=4.98%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-03",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 97.76,
+      "price": 98.1,
+      "qty": 15,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 3.5% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-03",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 509.65,
+      "price": 507.87,
+      "qty": 2,
+      "pnl": 10.73,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.42%; ATR-adjusted: stop=-1.89%, take=4.73%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-03",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 480.69,
+      "price": 482.37,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-04",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 266.08,
+      "price": 265.15,
+      "qty": 5,
+      "pnl": -7.76,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.23%; ATR-adjusted: stop=-2.79%, take=6.98%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-04",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 512.95,
+      "price": 514.75,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-04",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 96.01,
+      "price": 95.67,
+      "qty": 15,
+      "pnl": -36.42,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.13%; ATR-adjusted: stop=-5.87%, take=14.66%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-04",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 505.24,
+      "price": 507.01,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; RSI oversold 29.37797472509436; below VWAP (cheap intraday); mean_reversion: RSI oversold (29) or near BB lower"
+    },
+    {
+      "date": "2025-04-04",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 484.75,
+      "price": 483.05,
+      "qty": 3,
+      "pnl": 2.04,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.49%; ATR-adjusted: stop=-3.35%, take=8.38%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-05",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 269.96,
+      "price": 270.91,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.4% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-05",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 508.38,
+      "price": 506.6,
+      "qty": 2,
+      "pnl": -16.29,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.24%; ATR-adjusted: stop=-2.23%, take=5.58%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-05",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 100.47,
+      "price": 100.82,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.9% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-05",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 512.09,
+      "price": 510.3,
+      "qty": 2,
+      "pnl": 6.58,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.00%; ATR-adjusted: stop=-1.85%, take=4.63%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-05",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 483.68,
+      "price": 485.37,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.1% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-06",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 265.34,
+      "price": 264.41,
+      "qty": 5,
+      "pnl": -32.47,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.05%; ATR-adjusted: stop=-2.37%, take=5.92%; price<sma5 + MACD negative; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-06",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 506.36,
+      "price": 508.13,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-06",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 96.14,
+      "price": 95.8,
+      "qty": 14,
+      "pnl": -70.25,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -4.64%; ATR-adjusted: stop=-5.68%, take=14.20%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-06",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 504.19,
+      "price": 505.96,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "5d momentum 0.7% (not overheated); RSI oversold 27.453305662614866; below VWAP (cheap intraday); mean_reversion: RSI oversold (27) or near BB lower"
+    },
+    {
+      "date": "2025-04-06",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 484.29,
+      "price": 482.6,
+      "qty": 3,
+      "pnl": -8.33,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.22%; ATR-adjusted: stop=-3.09%, take=7.73%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-07",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 272.8,
+      "price": 273.76,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.6% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-07",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 517.66,
+      "price": 515.85,
+      "qty": 2,
+      "pnl": 19.79,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.31%; ATR-adjusted: stop=-2.21%, take=5.52%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-07",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 484.92,
+      "price": 486.62,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.9% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-08",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 271.31,
+      "price": 270.36,
+      "qty": 5,
+      "pnl": -16.97,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.89%; ATR-adjusted: stop=-2.40%, take=6.00%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-08",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 103.52,
+      "price": 103.88,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 7.8% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-08",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 513.03,
+      "price": 514.83,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.5% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-08",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 490.22,
+      "price": 488.51,
+      "qty": 3,
+      "pnl": 5.66,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.74%; ATR-adjusted: stop=-3.02%, take=7.56%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-09",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 264.03,
+      "price": 264.95,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-09",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 101.93,
+      "price": 101.57,
+      "qty": 14,
+      "pnl": -32.33,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.88%; ATR-adjusted: stop=-5.50%, take=13.75%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-09",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 513.71,
+      "price": 511.91,
+      "qty": 2,
+      "pnl": -5.83,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.22%; ATR-adjusted: stop=-2.11%, take=5.26%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-09",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 487.36,
+      "price": 489.07,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.8% (not overheated); below VWAP (cheap intraday); pullback: uptrend intact, RSI 48 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-10",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 265.09,
+      "price": 264.16,
+      "qty": 5,
+      "pnl": -3.96,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.05%; ATR-adjusted: stop=-2.69%, take=6.73%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-10",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 501.74,
+      "price": 499.99,
+      "qty": 2,
+      "pnl": -16.3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.26%; ATR-adjusted: stop=-2.63%, take=6.57%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-10",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 102.81,
+      "price": 103.17,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.9% (not overheated); below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-10",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 505.32,
+      "price": 507.09,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "5d momentum 0.2% (not overheated); below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-10",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 492.64,
+      "price": 490.92,
+      "qty": 3,
+      "pnl": 5.55,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.73%; ATR-adjusted: stop=-2.61%, take=6.51%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-11",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 268.16,
+      "price": 269.1,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; ema9>ema21; pullback: uptrend intact, RSI 55 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-11",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 499.03,
+      "price": 500.78,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "ema9>ema21; pullback: uptrend intact, RSI 50 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-11",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 101.85,
+      "price": 101.49,
+      "qty": 14,
+      "pnl": -23.47,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.28%; ATR-adjusted: stop=-5.53%, take=13.82%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-11",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 502.21,
+      "price": 500.45,
+      "qty": 2,
+      "pnl": -13.27,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.96%; ATR-adjusted: stop=-2.28%, take=5.69%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-11",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 503.15,
+      "price": 504.91,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.8% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-12",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 500.47,
+      "price": 498.72,
+      "qty": 2,
+      "pnl": -4.12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.06%; ATR-adjusted: stop=-2.43%, take=6.09%; price<sma5*0.995 trend broken; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-12",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 102.02,
+      "price": 102.38,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-12",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 510.01,
+      "price": 511.8,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-13",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 505.69,
+      "price": 507.46,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; ema9>ema21; pullback: uptrend intact, RSI 37 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-13",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 102.27,
+      "price": 101.91,
+      "qty": 14,
+      "pnl": -6.51,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.10%; ATR-adjusted: stop=-4.16%, take=10.40%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-13",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 506.83,
+      "price": 505.06,
+      "qty": 2,
+      "pnl": -13.48,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.97%; ATR-adjusted: stop=-2.31%, take=5.77%; price<sma5 + MACD negative; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-14",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 504.06,
+      "price": 502.3,
+      "qty": 2,
+      "pnl": -10.33,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.67%; ATR-adjusted: stop=-1.91%, take=4.78%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-14",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 99.97,
+      "price": 100.32,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-14",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 507.19,
+      "price": 508.97,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.4% (not overheated); MACD histogram positive; below VWAP (cheap intraday); default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-15",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 508.11,
+      "price": 509.89,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.8% (not overheated); ema9>ema21; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-15",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 102.52,
+      "price": 102.16,
+      "qty": 14,
+      "pnl": 25.78,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 2.19%; ATR-adjusted: stop=-4.33%, take=10.82%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-15",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 504.56,
+      "price": 502.8,
+      "qty": 2,
+      "pnl": -12.34,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.87%; ATR-adjusted: stop=-2.10%, take=5.24%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-16",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 509.17,
+      "price": 507.39,
+      "qty": 2,
+      "pnl": -5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.14%; ATR-adjusted: stop=-1.99%, take=4.97%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-16",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 103.48,
+      "price": 103.84,
+      "qty": 14,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.4% (not overheated); MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-16",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 509.33,
+      "price": 511.11,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; MACD histogram positive; below VWAP (cheap intraday); default_buy: score=2 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-17",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 511.07,
+      "price": 512.86,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 1.1% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 39 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-17",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 513.67,
+      "price": 511.87,
+      "qty": 2,
+      "pnl": 1.52,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.50%; ATR-adjusted: stop=-2.03%, take=5.07%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-18",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 502.37,
+      "price": 500.61,
+      "qty": 2,
+      "pnl": -24.49,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.05%; ATR-adjusted: stop=-1.74%, take=4.35%; stop-loss -1.74%"
+    },
+    {
+      "date": "2025-04-18",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 515.68,
+      "price": 517.49,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.7% (not overheated); MACD histogram positive; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-18",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 505.37,
+      "price": 503.6,
+      "qty": 2,
+      "pnl": -2.62,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.09%; ATR-adjusted: stop=-1.97%, take=4.92%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-19",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 293.61,
+      "price": 292.58,
+      "qty": 5,
+      "pnl": 117.42,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 9.11%; ATR-adjusted: stop=-3.13%, take=7.82%; take-profit 7.82%"
+    },
+    {
+      "date": "2025-04-19",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 522.01,
+      "price": 520.18,
+      "qty": 2,
+      "pnl": 5.4,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.87%; ATR-adjusted: stop=-1.92%, take=4.80%; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-19",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 496.48,
+      "price": 498.22,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-20",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 292.18,
+      "price": 293.2,
+      "qty": 5,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 4.6% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 74.0760674560459 (penalty)"
+    },
+    {
+      "date": "2025-04-20",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 510.35,
+      "price": 512.14,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 0.2% (not overheated); ema9>ema21; pullback: uptrend intact, RSI 53 cooled, price near sma5, above sma20 support"
+    },
+    {
+      "date": "2025-04-20",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 115.49,
+      "price": 115.09,
+      "qty": 14,
+      "pnl": 157.41,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 11.22%; ATR-adjusted: stop=-4.22%, take=10.55%; take-profit 10.55%"
+    },
+    {
+      "date": "2025-04-20",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 528.68,
+      "price": 530.53,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.8% (not overheated); MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-20",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 486.41,
+      "price": 484.71,
+      "qty": 3,
+      "pnl": -40.53,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.37%; ATR-adjusted: stop=-2.49%, take=6.23%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-21",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 498.99,
+      "price": 497.24,
+      "qty": 2,
+      "pnl": -29.79,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.57%; ATR-adjusted: stop=-1.88%, take=4.70%; stop-loss -1.88%"
+    },
+    {
+      "date": "2025-04-21",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 115.11,
+      "price": 115.51,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 6.9% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 80.04625041295013 (penalty)"
+    },
+    {
+      "date": "2025-04-21",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 512.76,
+      "price": 510.97,
+      "qty": 2,
+      "pnl": -39.13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -3.35%; ATR-adjusted: stop=-1.91%, take=4.77%; stop-loss -1.91%"
+    },
+    {
+      "date": "2025-04-21",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 486.84,
+      "price": 488.55,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-22",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 514.11,
+      "price": 515.91,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-22",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 487.36,
+      "price": 485.66,
+      "qty": 3,
+      "pnl": -8.67,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.24%; ATR-adjusted: stop=-2.39%, take=5.99%; price<sma5*0.995 trend broken; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-23",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 488.42,
+      "price": 490.13,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; mean_reversion: RSI oversold (34) or near BB lower"
+    },
+    {
+      "date": "2025-04-23",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 515.82,
+      "price": 514.02,
+      "qty": 2,
+      "pnl": -3.79,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -0.02%; ATR-adjusted: stop=-1.90%, take=4.75%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-23",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 492.06,
+      "price": 493.78,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; below VWAP (cheap intraday); default_buy: score=1 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-24",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 490.26,
+      "price": 488.55,
+      "qty": 3,
+      "pnl": -4.76,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.03%; ATR-adjusted: stop=-1.75%, take=4.38%; price<sma5*0.995 trend broken; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-24",
+      "symbol": "SPY",
+      "side": "BUY",
+      "signalPrice": 514.77,
+      "price": 516.57,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; below VWAP (cheap intraday)"
+    },
+    {
+      "date": "2025-04-24",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 516.66,
+      "price": 514.85,
+      "qty": 3,
+      "pnl": 63.21,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 4.63%; ATR-adjusted: stop=-2.98%, take=7.45%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-25",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 487.67,
+      "price": 489.38,
+      "qty": 3,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "near lower Bollinger band; mean_reversion: RSI oversold (41) or near BB lower"
+    },
+    {
+      "date": "2025-04-25",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 530.11,
+      "price": 531.97,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 8.9% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-26",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 311.28,
+      "price": 310.19,
+      "qty": 5,
+      "pnl": 84.94,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 6.17%; ATR-adjusted: stop=-2.20%, take=5.49%; take-profit 5.49%"
+    },
+    {
+      "date": "2025-04-26",
+      "symbol": "MSFT",
+      "side": "SELL",
+      "signalPrice": 494.32,
+      "price": 492.59,
+      "qty": 3,
+      "pnl": 9.64,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.01%; ATR-adjusted: stop=-1.90%, take=4.75%; MACD histogram negative; ema9<ema21 bearish cross"
+    },
+    {
+      "date": "2025-04-26",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 519.56,
+      "price": 517.74,
+      "qty": 2,
+      "pnl": -28.45,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.33%; ATR-adjusted: stop=-2.97%, take=7.42%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-27",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 306.67,
+      "price": 307.74,
+      "qty": 4,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 3.1% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 77.6644237030606 (penalty)"
+    },
+    {
+      "date": "2025-04-27",
+      "symbol": "MSFT",
+      "side": "BUY",
+      "signalPrice": 520.07,
+      "price": 521.89,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "price>sma5; 5d momentum 6.5% (not overheated); MACD histogram positive; default_buy: score=3 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-27",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 117.4,
+      "price": 116.99,
+      "qty": 12,
+      "pnl": 17.71,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.63%; ATR-adjusted: stop=-3.82%, take=9.56%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-27",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 527.29,
+      "price": 529.14,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 7.2% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-28",
+      "symbol": "AAPL",
+      "side": "SELL",
+      "signalPrice": 301.03,
+      "price": 299.98,
+      "qty": 4,
+      "pnl": -31.07,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -2.18%; ATR-adjusted: stop=-2.28%, take=5.70%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-04-28",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 117.4,
+      "price": 117.81,
+      "qty": 12,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21; RSI overbought 80.46137714085987 (penalty)"
+    },
+    {
+      "date": "2025-04-28",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 531.57,
+      "price": 529.71,
+      "qty": 2,
+      "pnl": 1.15,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 0.46%; ATR-adjusted: stop=-2.91%, take=7.28%; MACD histogram negative"
+    },
+    {
+      "date": "2025-04-29",
+      "symbol": "AAPL",
+      "side": "BUY",
+      "signalPrice": 310.3,
+      "price": 311.39,
+      "qty": 4,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 0.7% (not overheated); MACD histogram positive; ema9>ema21; RSI overbought 79.4112462541865 (penalty)"
+    },
+    {
+      "date": "2025-04-29",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 111.68,
+      "price": 111.29,
+      "qty": 12,
+      "pnl": -78.26,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -5.20%; ATR-adjusted: stop=-3.85%, take=9.63%; stop-loss -3.85%"
+    },
+    {
+      "date": "2025-04-29",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 539.37,
+      "price": 541.26,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 1.7% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    },
+    {
+      "date": "2025-04-30",
+      "symbol": "NVDA",
+      "side": "BUY",
+      "signalPrice": 113.02,
+      "price": 113.42,
+      "qty": 13,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; MACD histogram positive; ema9>ema21"
+    },
+    {
+      "date": "2025-04-30",
+      "symbol": "QQQ",
+      "side": "SELL",
+      "signalPrice": 548.4,
+      "price": 546.48,
+      "qty": 2,
+      "pnl": 10.45,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.32%; ATR-adjusted: stop=-3.01%, take=7.52%; MACD histogram negative"
+    },
+    {
+      "date": "2025-05-01",
+      "symbol": "NVDA",
+      "side": "SELL",
+      "signalPrice": 111.9,
+      "price": 111.51,
+      "qty": 13,
+      "pnl": -24.79,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return -1.34%; ATR-adjusted: stop=-3.67%, take=9.16%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-05-01",
+      "symbol": "SPY",
+      "side": "SELL",
+      "signalPrice": 522.83,
+      "price": 521,
+      "qty": 2,
+      "pnl": 8.86,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "partialFill": false,
+      "reason": "position return 1.21%; ATR-adjusted: stop=-2.20%, take=5.51%; price<sma5*0.995 trend broken"
+    },
+    {
+      "date": "2025-05-01",
+      "symbol": "QQQ",
+      "side": "BUY",
+      "signalPrice": 542.81,
+      "price": 544.71,
+      "qty": 2,
+      "slippagePct": 0.1,
+      "impactPct": 0,
+      "reason": "sma5>sma20 uptrend; price>sma5; 5d momentum 2.9% (not overheated); ema9>ema21; default_buy: score=4 (no specific strategy but positive signals)"
+    }
+  ],
   "equityCurve": [
     {
-      "date": "2026-07-14T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-02",
+      "equity": 10000
     },
     {
-      "date": "2026-07-15T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-03",
+      "equity": 10000
     },
     {
-      "date": "2026-07-16T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-04",
+      "equity": 10374.042306475
     },
     {
-      "date": "2026-07-20T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-05",
+      "equity": 10374.042306475
     },
     {
-      "date": "2026-07-21T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-06",
+      "equity": 11399.783158275
     },
     {
-      "date": "2026-07-22T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-07",
+      "equity": 11399.783158275
     },
     {
-      "date": "2026-07-23T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-08",
+      "equity": 11356.703155924999
     },
     {
-      "date": "2026-07-24T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-09",
+      "equity": 10287.448020725
     },
     {
-      "date": "2026-07-27T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-10",
+      "equity": 10137.036300725002
     },
     {
-      "date": "2026-07-28T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-11",
+      "equity": 9985.6095584
     },
     {
-      "date": "2026-07-29T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-12",
+      "equity": 11128.220117875
     },
     {
-      "date": "2026-07-30T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-13",
+      "equity": 10028.152662000002
     },
     {
-      "date": "2026-07-31T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-14",
+      "equity": 9888.458348700002
     },
     {
-      "date": "2026-08-03T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-15",
+      "equity": 9689.457227650004
     },
     {
-      "date": "2026-08-04T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-16",
+      "equity": 9859.155789600003
     },
     {
-      "date": "2026-08-05T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-17",
+      "equity": 9927.134242250004
     },
     {
-      "date": "2026-08-06T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-18",
+      "equity": 9833.831431750004
     },
     {
-      "date": "2026-08-07T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-19",
+      "equity": 9608.309629450006
     },
     {
-      "date": "2026-08-10T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-20",
+      "equity": 10875.927193800004
     },
     {
-      "date": "2026-08-11T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-21",
+      "equity": 9585.984060250004
     },
     {
-      "date": "2026-08-12T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-22",
+      "equity": 10866.677394850007
     },
     {
-      "date": "2026-08-13T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-23",
+      "equity": 9863.499777250008
     },
     {
-      "date": "2026-08-14T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-24",
+      "equity": 10604.382152550008
     },
     {
-      "date": "2026-08-18T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-25",
+      "equity": 10563.271721050007
     },
     {
-      "date": "2026-08-19T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-26",
+      "equity": 10684.201977900007
     },
     {
-      "date": "2026-08-20T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-27",
+      "equity": 10230.297260650008
     },
     {
-      "date": "2026-08-21T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-28",
+      "equity": 10556.174480825008
     },
     {
-      "date": "2026-08-24T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-29",
+      "equity": 10241.312810600008
     },
     {
-      "date": "2026-08-25T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-30",
+      "equity": 10574.575963225006
     },
     {
-      "date": "2026-08-26T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-01-31",
+      "equity": 9370.892553425008
     },
     {
-      "date": "2026-08-27T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-01",
+      "equity": 10283.93867322501
     },
     {
-      "date": "2026-08-28T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-02",
+      "equity": 9565.880600200013
     },
     {
-      "date": "2026-08-31T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-03",
+      "equity": 10174.277763325012
     },
     {
-      "date": "2026-09-01T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-04",
+      "equity": 10411.512043525012
     },
     {
-      "date": "2026-09-02T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-05",
+      "equity": 10319.24762295001
     },
     {
-      "date": "2026-09-03T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-06",
+      "equity": 10327.422838400009
     },
     {
-      "date": "2026-09-04T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-07",
+      "equity": 10126.377285800012
     },
     {
-      "date": "2026-09-07T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-08",
+      "equity": 10472.414207200012
     },
     {
-      "date": "2026-09-08T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-09",
+      "equity": 10405.576248450012
     },
     {
-      "date": "2026-09-09T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-10",
+      "equity": 9702.86768820001
     },
     {
-      "date": "2026-09-10T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-11",
+      "equity": 10395.85028867501
     },
     {
-      "date": "2026-09-11T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-12",
+      "equity": 9645.737392750012
     },
     {
-      "date": "2026-09-14T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-13",
+      "equity": 10190.632851675015
     },
     {
-      "date": "2026-09-15T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-14",
+      "equity": 9651.021611200013
     },
     {
-      "date": "2026-09-16T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-15",
+      "equity": 9926.791934000012
     },
     {
-      "date": "2026-09-17T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-16",
+      "equity": 10145.658621200015
     },
     {
-      "date": "2026-09-18T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-17",
+      "equity": 10057.905185550015
     },
     {
-      "date": "2026-09-21T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-18",
+      "equity": 9916.843072650016
     },
     {
-      "date": "2026-09-22T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-19",
+      "equity": 10016.068311025014
     },
     {
-      "date": "2026-09-23T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-20",
+      "equity": 9815.727298975014
     },
     {
-      "date": "2026-09-28T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-21",
+      "equity": 9272.576446925015
     },
     {
-      "date": "2026-09-29T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-22",
+      "equity": 9706.745097675015
     },
     {
-      "date": "2026-09-30T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-23",
+      "equity": 9541.182973350016
     },
     {
-      "date": "2026-10-01T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-24",
+      "equity": 9599.493651450019
     },
     {
-      "date": "2026-10-02T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-25",
+      "equity": 10020.106642600018
     },
     {
-      "date": "2026-10-06T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-26",
+      "equity": 9571.813666600017
     },
     {
-      "date": "2026-10-07T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-27",
+      "equity": 9947.974484175018
     },
     {
-      "date": "2026-10-08T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-02-28",
+      "equity": 9203.125399275019
     },
     {
-      "date": "2026-10-12T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-03-01",
+      "equity": 9861.168876125019
     },
     {
-      "date": "2026-10-13T00:00:00.000+09:00",
-      "equity": 10000000
+      "date": "2025-03-02",
+      "equity": 9261.51214517502
+    },
+    {
+      "date": "2025-03-03",
+      "equity": 9721.77261607502
+    },
+    {
+      "date": "2025-03-04",
+      "equity": 9065.903352025021
+    },
+    {
+      "date": "2025-03-05",
+      "equity": 9620.79760655002
+    },
+    {
+      "date": "2025-03-06",
+      "equity": 9036.522948325022
+    },
+    {
+      "date": "2025-03-07",
+      "equity": 9748.758704625021
+    },
+    {
+      "date": "2025-03-08",
+      "equity": 9231.745388375022
+    },
+    {
+      "date": "2025-03-09",
+      "equity": 9714.384729500023
+    },
+    {
+      "date": "2025-03-10",
+      "equity": 9544.716863700023
+    },
+    {
+      "date": "2025-03-11",
+      "equity": 9868.119918875025
+    },
+    {
+      "date": "2025-03-12",
+      "equity": 9560.439613050024
+    },
+    {
+      "date": "2025-03-13",
+      "equity": 9769.817638150023
+    },
+    {
+      "date": "2025-03-14",
+      "equity": 9446.032835375023
+    },
+    {
+      "date": "2025-03-15",
+      "equity": 9409.001307625022
+    },
+    {
+      "date": "2025-03-16",
+      "equity": 9579.847003125024
+    },
+    {
+      "date": "2025-03-17",
+      "equity": 9475.217173950023
+    },
+    {
+      "date": "2025-03-18",
+      "equity": 9546.083276450023
+    },
+    {
+      "date": "2025-03-19",
+      "equity": 9364.220742325024
+    },
+    {
+      "date": "2025-03-20",
+      "equity": 9596.716847775024
+    },
+    {
+      "date": "2025-03-21",
+      "equity": 9133.936002425025
+    },
+    {
+      "date": "2025-03-22",
+      "equity": 9493.180487850026
+    },
+    {
+      "date": "2025-03-23",
+      "equity": 9135.147010525026
+    },
+    {
+      "date": "2025-03-24",
+      "equity": 9413.715461400026
+    },
+    {
+      "date": "2025-03-25",
+      "equity": 9090.407414225027
+    },
+    {
+      "date": "2025-03-26",
+      "equity": 9148.975092550027
+    },
+    {
+      "date": "2025-03-27",
+      "equity": 8909.790591425026
+    },
+    {
+      "date": "2025-03-28",
+      "equity": 9114.168775375027
+    },
+    {
+      "date": "2025-03-29",
+      "equity": 9107.564081975028
+    },
+    {
+      "date": "2025-03-30",
+      "equity": 8872.734756150028
+    },
+    {
+      "date": "2025-03-31",
+      "equity": 8901.621044125028
+    },
+    {
+      "date": "2025-04-01",
+      "equity": 9095.15690320003
+    },
+    {
+      "date": "2025-04-02",
+      "equity": 8638.084903825029
+    },
+    {
+      "date": "2025-04-03",
+      "equity": 9205.919598575028
+    },
+    {
+      "date": "2025-04-04",
+      "equity": 8616.41093962503
+    },
+    {
+      "date": "2025-04-05",
+      "equity": 9072.17626342503
+    },
+    {
+      "date": "2025-04-06",
+      "equity": 8510.97831950003
+    },
+    {
+      "date": "2025-04-07",
+      "equity": 8858.164580900031
+    },
+    {
+      "date": "2025-04-08",
+      "equity": 8613.956535575031
+    },
+    {
+      "date": "2025-04-09",
+      "equity": 8845.357371100032
+    },
+    {
+      "date": "2025-04-10",
+      "equity": 8536.211858275032
+    },
+    {
+      "date": "2025-04-11",
+      "equity": 8702.465391175032
+    },
+    {
+      "date": "2025-04-12",
+      "equity": 8788.689432775032
+    },
+    {
+      "date": "2025-04-13",
+      "equity": 8664.994147925032
+    },
+    {
+      "date": "2025-04-14",
+      "equity": 8792.833353325033
+    },
+    {
+      "date": "2025-04-15",
+      "equity": 8663.244753775032
+    },
+    {
+      "date": "2025-04-16",
+      "equity": 8747.661111175034
+    },
+    {
+      "date": "2025-04-17",
+      "equity": 8766.627944175032
+    },
+    {
+      "date": "2025-04-18",
+      "equity": 8633.526464475033
+    },
+    {
+      "date": "2025-04-19",
+      "equity": 8663.573736050033
+    },
+    {
+      "date": "2025-04-20",
+      "equity": 8656.129903875033
+    },
+    {
+      "date": "2025-04-21",
+      "equity": 8679.729168025033
+    },
+    {
+      "date": "2025-04-22",
+      "equity": 8522.104202675035
+    },
+    {
+      "date": "2025-04-23",
+      "equity": 8781.063648175033
+    },
+    {
+      "date": "2025-04-24",
+      "equity": 8575.442576225034
+    },
+    {
+      "date": "2025-04-25",
+      "equity": 8728.894963150033
+    },
+    {
+      "date": "2025-04-26",
+      "equity": 8546.240479350034
+    },
+    {
+      "date": "2025-04-27",
+      "equity": 8675.579997850033
+    },
+    {
+      "date": "2025-04-28",
+      "equity": 8529.275934000034
+    },
+    {
+      "date": "2025-04-29",
+      "equity": 8528.583134550034
+    },
+    {
+      "date": "2025-04-30",
+      "equity": 8516.220993400033
+    },
+    {
+      "date": "2025-05-01",
+      "equity": 8503.673600250033
     }
   ]
 }
