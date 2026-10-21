@@ -168,16 +168,27 @@ function marketSessionState(market, at = new Date(), holidays = new Set()) {
 function minutesUntilNextOpen(market, at = new Date(), holidays = new Set()) {
   const sess = SESSIONS[market];
   if (!sess) return null;
+  const openMin = hhmmToMinutes(sess.open);
+  const closeMin = hhmmToMinutes(sess.close);
+  const local0 = localParts(at, sess.tz);
+  const nowMin = hhmmToMinutes(local0.hm);
+  // Already inside the session.
+  if (isWeekday(local0.weekday) && !holidays.has(local0.date) && nowMin >= openMin && nowMin < closeMin) {
+    return 0;
+  }
   for (let d = 0; d <= 7; d++) {
     const probe = new Date(at.getTime() + d * 86400000);
     const local = localParts(probe, sess.tz);
     if (!isWeekday(local.weekday)) continue;
     if (holidays.has(local.date)) continue;
-    const openMin = hhmmToMinutes(sess.open);
-    const closeMin = hhmmToMinutes(sess.close);
-    const nowMin = hhmmToMinutes(local.hm);
-    if (nowMin < openMin) return (openMin - nowMin) + d * 1440;
-    if (d === 0 && nowMin < closeMin) return 0;
+    if (d === 0) {
+      // Today's open has not happened yet.
+      if (nowMin < openMin) return openMin - nowMin;
+      continue; // it has passed - the next candidate is the next trading day
+    }
+    // A later trading day: the wait is the time to midnight plus the time
+    // from midnight to that day's open.
+    return (1440 - nowMin) + openMin + (d - 1) * 1440;
   }
   return null;
 }

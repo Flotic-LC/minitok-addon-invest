@@ -20,3 +20,14 @@ state/
 # Python
 __pycache__/
 *.pyc
+
+# one-off development scripts kept on disk, never tracked
+_tr.js
+find-account.js
+list-accounts.js
+gen_candles_valid.js
+patch-*.js
+patch_*.py
+test-ai-decision.js
+test-equity.js
+verify_exchange_fix.js
