@@ -4973,12 +4973,23 @@ async function start() {
       if (!list) return null;
       const kept = [];
       const dropped = [];
+      const unpriceable = [];
       for (const s of list) {
-        if (cal.isTradableMarket(detectMarket(s))) kept.push(s);
-        else dropped.push(s);
+        const _mkt = detectMarket(s);
+        if (!cal.isTradableMarket(_mkt)) dropped.push(s);
+        // [2026-10-21 4단계] A market the broker cannot price is not a market
+        // this bot can trade. JP symbols used to survive this filter because
+        // the JP market was still on the tradable list, even though the Toss
+        // Open API collects no JP data - the bot was holding opinions about
+        // names it could not observe or price.
+        else if (!apiSupportsMarket(_mkt)) unpriceable.push(s);
+        else kept.push(s);
       }
       if (dropped.length > 0) {
         console.log("[universe] Dropped " + dropped.length + " symbol(s) from a non-tradable market (" + dropped.join(", ") + ") from " + origin);
+      }
+      if (unpriceable.length > 0) {
+        console.log("[universe] Dropped " + unpriceable.length + " symbol(s) the broker cannot price (" + unpriceable.join(", ") + ") from " + origin);
       }
       return kept.length > 0 ? kept : null;
     }
