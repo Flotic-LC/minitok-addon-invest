@@ -437,6 +437,7 @@ const { createStore } = require("./src/store");
 // orderManager removed: pendingOrders Map + monitorPendingOrders() handle the lifecycle.
 const cal = require("./src/agent/marketCalendar");
 const { assessTradability, rankByOpportunity, apiSupportsMarket } = require("./src/agent/tradability");
+const oe = require("./src/agent/order-execution");
 const { createMetrics } = require("./src/agent/metrics");
 const { generateSignal } = require("./src/strategy/signals");
 const { fallbackDecision } = require("./src/strategy/fallback");
@@ -3557,6 +3558,19 @@ const ORDER_MONITOR_TIMEOUT_MS = Number(process.env.ORDER_MONITOR_TIMEOUT_MS || 
 const ORDER_MONITOR_POLL_MS = Number(process.env.ORDER_MONITOR_POLL_MS || 30000); // 30s
 const pendingOrders = new Map(); // orderId -> { symbol, side, price, quantity, createdAt }
 
+// [2026-10-21 5단계] The order-execution guards.
+//
+// The idempotency guard refuses a duplicate submission: the broker's order
+// API takes no client order id, so a retry after a timeout or a lost
+// response could place the same order twice. The fill-quality tracker
+// measures what the broker actually did with the orders - how many filled,
+// how long they took, how far the fill was from the price we asked for - and
+// restricts the names whose execution is poor.
+const idempotencyGuard = oe.createIdempotencyGuard({
+  windowMs: Number(process.env.ORDER_IDEMPOTENCY_WINDOW_MS || 120000),
+});
+const fillQuality = oe.createFillQualityTracker({});
+
 // [P0-FIX] Removed dead orderManager instance. The pendingOrders Map and
 // monitorPendingOrders() loop handle the full order lifecycle. The orderManager
 // was instantiated but never polled, causing redundant memory usage.
@@ -3571,7 +3585,35 @@ async function monitorPendingOrders() {
       try {
         const _tToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
         const _tResp = await getOrder(_tToken, TOSS_ACCOUNT_SEQ, orderId);
-        const _tFilled = Number(_tResp.body?.filledQuantity || _tResp.body?.executedQuantity || 0);
+        const _tVerdict = oe.timeoutVerdict(info, _tResp.body);
+        const _tFilled = _tVerdict.fill.filledQuantity;
+        if (_tVerdict.action === "APPLY_FILL") {
+          // [2026-10-21 5단계] The order had in fact FILLED.
+          //
+          // The old check only asked "is the filled quantity non-zero", so a
+          // full fill was mistaken for a partial one: it was charged as a
+          // partial, the order was CANCELLED, and the position it had
+          // created was never booked. The position existed at the broker and
+          // the runner did not know about it - a phantom position and a
+          // phantom P&L. A full fill is a fill: book it, do not cancel it.
+          const _tFillPrice = Number(_tResp.body?.avgFilledPrice || _tResp.body?.filledPrice || info.price || 0);
+          console.log("[order-monitor] Order " + orderId + " timed out but had in fact FILLED (" + _tFilled + "/" + (info.originalQuantity || info.quantity) + " @ " + _tFillPrice + ") - booking the fill instead of cancelling");
+          info.filledQuantity = _tFilled;
+          info.partialLogged = true;
+          if (info.side === "BUY" && _tFillPrice > 0) {
+            try { entryPrices.set(info.symbol, _tFillPrice); peakPrices.delete(info.symbol); } catch (e) {}
+          }
+          try { recordRecentFill(info.symbol, info.side, _tFillPrice, _tFilled, null); } catch (e) {}
+          try {
+            eventStore.append("FILL", {
+              symbol: info.symbol, side: info.side, fillPrice: _tFillPrice, quantity: _tFilled,
+              recoveredAfterTimeout: true,
+              reason: "the fill was recovered after the monitor timeout",
+            });
+          } catch (e) { /* event store best-effort */ }
+          pendingOrders.delete(orderId);
+          continue;
+        }
         if (_tFilled > 0 && !info.partialLogged) {
           console.log("[order-monitor] Order " + orderId + " timed out but was PARTIALLY FILLED: " + _tFilled + "/" + (info.originalQuantity || info.quantity));
           info.filledQuantity = _tFilled;
@@ -3635,9 +3677,31 @@ async function monitorPendingOrders() {
         continue;
       }
       if (status === "FILLED" || status === "COMPLETED") {
+        // [2026-10-21 5단계] A fill is booked exactly once. The same order can
+        // be observed more than once: the monitor polls it, the reconciliation
+        // sees it in the broker's list, and a restart re-reads the persisted
+        // pending orders. Booking it twice would double the position and the
+        // P&L.
+        if (!oe.markFillApplied(info)) {
+          console.log("[order-monitor] Order " + orderId + " was already booked - the duplicate fill is ignored");
+          pendingOrders.delete(orderId);
+          continue;
+        }
         console.log("[order-monitor] Order " + orderId + " FILLED.");
         // [IMPROVE #6] Record slippage: compare expected vs actual fill price
         const fillPrice = Number(resp.body.filledPrice || resp.body.avgFilledPrice || resp.body.price || 0);
+        // [2026-10-21 5단계] The execution-quality measurement: how long the
+        // fill took, and how far the fill price was from the price we asked
+        // for. A name that is consistently slow or expensive to fill is
+        // traded smaller by the restriction in the order path.
+        try {
+          const _fqSlip = (fillPrice > 0 && info.price > 0) ? ((fillPrice - info.price) / info.price) * 100 : null;
+          fillQuality.recordFill(info.symbol, {
+            filledQty: Number(info.filledQuantity || info.quantity) || 0,
+            latencyMs: info.createdAt ? (Date.now() - info.createdAt) : null,
+            slippagePct: _fqSlip,
+          });
+        } catch (e) { /* the measurement is best-effort */ }
         if (fillPrice > 0 && info.price > 0) {
           recordSlippage(info.symbol, info.side, info.price, fillPrice);
         }
@@ -4757,7 +4821,39 @@ async function _executeDecisionInner(decision, sym) {
     }
   } catch { /* best-effort */ }
 
+  // [2026-10-21 5단계] The execution-quality restriction. A symbol whose
+  // fills are slow, rejected or expensive is traded SMALLER, not dropped:
+  // the signal may still be right, it is the execution that is poor.
+  try {
+    const _fq = fillQuality.restrictionFor(input.symbol);
+    if (_fq.restricted) {
+      const _before = Number(input.quantity) || 0;
+      const _after = Math.max(1, Math.floor(_before * (_fq.multiplier || 0.5)));
+      if (_after < _before) {
+        console.log("[exec] Restricted " + input.symbol + " to " + _after + "/" + _before + " shares (" + _fq.reason + ")");
+        journalEntry({ type: "EXECUTION_RESTRICTED", symbol: input.symbol, from: _before, to: _after, reason: _fq.reason });
+        input.quantity = _after;
+      }
+    }
+  } catch (e) { /* the restriction is best-effort */ }
+
+  // [2026-10-21 5단계] The idempotency guard. The claim is taken BEFORE the
+  // submission, so a retry after a timeout, a broker 500 or a lost response
+  // is refused instead of placing the same order twice.
+  const _idemKey = oe.idempotencyKey({ symbol: input.symbol, side: input.side, quantity: input.quantity, price: input.price });
+  const _idem = idempotencyGuard.claim(_idemKey);
+  if (!_idem.ok) {
+    console.log("[exec] Skipped: duplicate order refused - " + _idem.reason + " [" + _idemKey + "]");
+    journalEntry({ type: "ORDER_DUPLICATE_REFUSED", symbol: input.symbol, side: input.side, quantity: input.quantity, price: input.price, reason: _idem.reason });
+    return;
+  }
+
   const result = await tools.order(input);
+  if (result.ok && result.data && result.data.order && result.data.order.orderId) {
+    idempotencyGuard.attach(_idemKey, result.data.order.orderId);
+  }
+  try { fillQuality.recordSubmission(input.symbol, input.quantity); } catch (e) {}
+  if (!result.ok) { try { fillQuality.recordRejection(input.symbol); } catch (e) {} }
   console.log("[exec] Result: ok=" + result.ok + ", code=" + result.code + ", account=" + orderAccountSeq);
   // [CASH-RESCUE] Track successful SELL to prevent duplicate off-hours orders
   if (result.ok && input.side === "SELL") {
@@ -5841,6 +5937,40 @@ async function start() {
           invalidatePortfolioCache();
           await fetchPortfolioContext(true);
           console.log("[ws] Post-reconnect portfolio resync complete.");
+          // [2026-10-21 5단계] Re-check every pending order against the
+          // broker. A fill that happened while the socket was down is
+          // invisible to the runner until somebody looks for it - and the
+          // order monitor may well have given up on it in the meantime.
+          try {
+            const _rToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
+            let _recovered = 0;
+            for (const [oid, info] of Array.from(pendingOrders.entries())) {
+              try {
+                const _rResp = await getOrder(_rToken, TOSS_ACCOUNT_SEQ, oid);
+                const _state = oe.classifyOrderStatus(_rResp.body && _rResp.body.status);
+                const _fill = oe.readFillInfo(_rResp.body);
+                if (!oe.isFillProgress(_state) || _fill.filledQuantity <= 0) continue;
+                if (!oe.markFillApplied(info)) { pendingOrders.delete(oid); continue; }
+                const _fp = Number(_fill.avgPrice) || 0;
+                if (info.side === "BUY" && _fp > 0) {
+                  try { entryPrices.set(info.symbol, _fp); peakPrices.delete(info.symbol); } catch (e) {}
+                }
+                try { recordRecentFill(info.symbol, info.side, _fp, _fill.filledQuantity, null); } catch (e) {}
+                try {
+                  eventStore.append("FILL", {
+                    symbol: info.symbol, side: info.side, fillPrice: _fp, quantity: _fill.filledQuantity,
+                    recoveredByReconciliation: true,
+                    reason: "the fill was recovered by the post-reconnect reconciliation",
+                  });
+                } catch (e) { /* event store best-effort */ }
+                pendingOrders.delete(oid);
+                _recovered++;
+              } catch (e) { /* per-order best-effort */ }
+            }
+            if (_recovered) console.log("[ws] Reconciliation recovered " + _recovered + " fill(s) missed during the disconnect");
+          } catch (e) {
+            console.warn("[ws] Order reconciliation failed: " + (e && e.message));
+          }
         } catch (e) {
           console.warn("[ws] Post-reconnect resync failed: " + (e && e.message));
         }
@@ -7772,6 +7902,13 @@ function dumpRunnerState() {
   try {
     var state = {
       pendingOrders: Array.from(pendingOrders.entries()),
+      // [2026-10-21 5단계] The idempotency claims and the execution-quality
+      // counters survive a restart. Without them a restart inside the
+      // idempotency window could re-submit an order that had already been
+      // sent, and the execution-quality history would restart from zero -
+      // so a name that cannot be executed well would look perfect again.
+      idempotencyClaims: idempotencyGuard.state(),
+      fillQualityStats: fillQuality.state(),
       entryPrices: Array.from(entryPrices.entries()),
       symbolPerformance: Array.from(symbolPerformance.entries()),
       peakPrices: Array.from(peakPrices.entries()),
@@ -7888,6 +8025,22 @@ function restoreRunnerState() {
         pendingOrders.set(po[0], po[1]);
       }
       console.log("[state] Restored " + raw.pendingOrders.length + " pending orders");
+    }
+    // [2026-10-21 5단계] The idempotency claims and the execution-quality
+    // counters. A restart inside the idempotency window must not re-submit
+    // an order that had already been sent, and the execution-quality history
+    // must not reset to "perfect" after every restart.
+    try {
+      if (raw.idempotencyClaims) {
+        idempotencyGuard.restore(raw.idempotencyClaims);
+        console.log("[state] Restored " + idempotencyGuard.size() + " idempotency claims");
+      }
+      if (raw.fillQualityStats) {
+        fillQuality.restore(raw.fillQualityStats);
+        console.log("[state] Restored " + fillQuality.state().length + " execution-quality records");
+      }
+    } catch (e) {
+      console.warn("[state] Could not restore the order-execution state: " + (e && e.message));
     }
     if (raw.entryPrices && Array.isArray(raw.entryPrices)) {
       for (var ep of raw.entryPrices) entryPrices.set(ep[0], ep[1]);
