@@ -436,6 +436,7 @@ const scalper = require("./src/agent/scalper");
 const { createStore } = require("./src/store");
 // orderManager removed: pendingOrders Map + monitorPendingOrders() handle the lifecycle.
 const cal = require("./src/agent/marketCalendar");
+const { assessTradability, rankByOpportunity, apiSupportsMarket } = require("./src/agent/tradability");
 const { createMetrics } = require("./src/agent/metrics");
 const { generateSignal } = require("./src/strategy/signals");
 const { fallbackDecision } = require("./src/strategy/fallback");
@@ -1957,6 +1958,11 @@ function edgeMultiplierNow(strategy) {
 // liquidity-shock detector. It is now also attached to the order so the
 // trade record can show how much of the execution cost was the spread.
 const lastSpreadBps = new Map();
+// [2026-10-21 4단계] When the quote for a symbol was last refreshed. The
+// tradability gate refuses an order on a stale quote: the daily candles are
+// a day old by construction, so the freshness has to be measured on the
+// orderbook/price fetch, not on the candle.
+const lastQuoteAt = new Map();
 
 // [2026-10-21] The AI provider is a paid external API, so every decision
 // costs money. A bot that decides more often pays more, which is a real cost
@@ -2860,7 +2866,11 @@ async function askAI(marketData, opts) {
             orderbookCtx.spreadBps = Number(_spreadBps.toFixed(2));
             // [2026-10-21] Remember the spread so the order that this decision
             // produces can carry it into the trade record.
-            if (sym) lastSpreadBps.set(String(sym).toUpperCase(), orderbookCtx.spreadBps);
+            if (sym) {
+              lastSpreadBps.set(String(sym).toUpperCase(), orderbookCtx.spreadBps);
+              // [2026-10-21 4단계] The quote timestamp for the freshness check.
+              lastQuoteAt.set(String(sym).toUpperCase(), Date.now());
+            }
             // [2026-10-21] The symbol is passed so a liquidity shock is
             // attributed to the name that showed it, not to the whole book.
             selfHealer.tick({ spreadBps: orderbookCtx.spreadBps, symbol: sym });
@@ -3370,6 +3380,9 @@ async function callAIWithTools(messages, tools, toolHandler, maxRounds) {
 
 // --- [FIX #9] Circuit Breaker / Price Limit Check ---
 // Skips BUY if symbol is at/near its daily price limit (circuit breaker).
+// [2026-10-21 4단계] The limits are cached so the tradability gate can use
+// them without paying for a second API call on the same order.
+const lastPriceLimits = new Map(); // symbol -> { upper, lower, at }
 async function checkPriceLimit(symbol, side) {
   if (side !== "BUY") return true;
   try {
@@ -3377,13 +3390,59 @@ async function checkPriceLimit(symbol, side) {
     const resp = await getPriceLimits(token, symbol);
     if (!resp || !resp.body) return true;
     const upper = Number(resp.body.upperLimitPrice || 0);
+    const lower = Number(resp.body.lowerLimitPrice || 0);
     const current = Number(resp.body.currentPrice || resp.body.closePrice || 0);
+    lastPriceLimits.set(String(symbol).toUpperCase(), { upper: upper, lower: lower, at: Date.now() });
     if (upper > 0 && current > 0 && current >= upper * 0.98) {
       console.log("[circuit-breaker] " + symbol + " at/near upper limit (" + current + "/" + upper + "). Skipping BUY.");
       return false;
     }
     return true;
   } catch { return true; }
+}
+
+/**
+ * The pre-trade tradability gate.
+ *
+ * [2026-10-21 4단계] A signal is not an order. This asks the questions the
+ * order path used to skip: can the broker price this market, is the market
+ * open, is the data fresh, did the symbol just trade, is the spread narrow
+ * enough, is the price inside the broker's daily limit, and does the
+ * expected move cover the round trip.
+ *
+ * It is deliberately fail-closed on the questions it can answer, and
+ * deliberately permissive on the ones it cannot (a missing spread or a
+ * missing volume is not a reason to refuse an otherwise sound order).
+ */
+function preTradeTradabilityGate(input, ctx) {
+  const c = ctx || {};
+  const symbol = String(input.symbol || "").toUpperCase();
+  const market = detectMarket(symbol);
+  const limits = lastPriceLimits.get(symbol);
+  const limitsFresh = limits && (Date.now() - limits.at) < 120000;
+  const candleCtx = c.candleCtx || null;
+  const assessment = assessTradability({
+    symbol: symbol,
+    market: market,
+    side: input.side,
+    price: Number(input.price) || 0,
+    dollarVolume: Number(candleCtx && candleCtx.dollarVolume) || 0,
+    spreadBps: Number(lastSpreadBps.get(symbol)) || 0,
+    dataAt: Number(c.dataAt) || 0,
+    lastTradeAt: Number(c.lastTradeAt) || 0,
+    upperLimitPrice: limitsFresh ? limits.upper : 0,
+    lowerLimitPrice: limitsFresh ? limits.lower : 0,
+    expectedMovePct: Number(c.expectedMovePct) || 0,
+    // A risk-reducing exit is allowed to queue for the next open. Refusing
+    // it would leave the position exposed to the very overnight gap the exit
+    // is meant to avoid.
+    allowClosedMarket: String(input.side || "").toUpperCase() === "SELL",
+  });
+  if (!assessment.tradable) {
+    console.log("[tradability] BLOCKED " + (input.side || "BUY") + " " + symbol + ": " + assessment.reason);
+    try { journalEntry({ type: "ORDER_BLOCKED", action: input.side || "BUY", symbol: symbol, reason: "NOT_TRADABLE: " + assessment.reason }); } catch (e) { /* journal is best-effort */ }
+  }
+  return assessment;
 }
 
 // --- [FIX #9b] FX Rate Monitor ---
@@ -4620,6 +4679,33 @@ async function _executeDecisionInner(decision, sym) {
     if (!allowed) { console.log("[exec] Skipped: circuit breaker active for " + input.symbol); return; }
   }
 
+  // [2026-10-21 4단계] The pre-trade tradability gate.
+  //
+  // A signal is not an order. This refuses the order when the broker cannot
+  // price the market, when the market is closed (a queued BUY is a bet on
+  // the overnight gap, and the measured strategy lost more on queued exits
+  // than on anything else), when the quote is stale, when the symbol is not
+  // moving, when the spread is too wide for the expected move to survive,
+  // or when the price sits on the broker's daily limit. A SELL is allowed
+  // to queue, because refusing a risk-reducing exit leaves the position
+  // exposed to the very gap the exit is meant to avoid.
+  {
+    const _ttSym = String(input.symbol || "").toUpperCase();
+    const _ttCandle = (typeof lastCandleCtx !== "undefined")
+      ? (lastCandleCtx.get(_ttSym) || lastCandleCtx.get(String(input.symbol || "")))
+      : null;
+    const _tt = preTradeTradabilityGate(input, {
+      candleCtx: _ttCandle,
+      dataAt: Number(lastQuoteAt.get(_ttSym)) || 0,
+      lastTradeAt: 0,
+      expectedMovePct: 0,
+    });
+    if (!_tt.tradable) {
+      console.log("[exec] Skipped: " + input.symbol + " is not tradable - " + _tt.reason);
+      return;
+    }
+  }
+
   // [Phase J / L4.5] Self-healing liquidity shock guard before BUY
   // [2026-10-21] Per symbol: a wide spread on one illiquid name must not
   // block buys of the liquid names. The mitigation was global, so a single
@@ -4966,6 +5052,15 @@ async function start() {
       // polled, subscribed to or offered to the AI.
       if (!cal.isTradableMarket(detectMarket(s))) {
         console.log("[universe] Rejected (market not tradable): " + s);
+        return false;
+      }
+      // [2026-10-21 4단계] A market the broker cannot price is not a market
+      // the bot can trade. The runner has always warned that the Toss Open
+      // API collects no JP data and falls back to the broker's average cost -
+      // which is not a price. JP symbols used to stay in the watchlist and
+      // be offered to the AI, which then formed opinions it could not act on.
+      if (!apiSupportsMarket(detectMarket(s))) {
+        console.log("[universe] Rejected (the broker cannot price this market): " + s);
         return false;
       }
       const isJP = /^\d{4}$/.test(s), isUS = /^[A-Z][A-Z.]{0,5}$/.test(s);

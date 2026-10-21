@@ -112,4 +112,70 @@ function createHolidayCache({ fetchCalendar, ttlMs = 6 * 3600 * 1000 } = {}) {
   return { holidaysFor, isMarketOpenAsync };
 }
 
-module.exports = { SESSIONS, TRADABLE_MARKETS, isTradableMarket, isMarketOpen, getActiveMarkets, localParts, createHolidayCache };
+/**
+ * The state of a market's session right now.
+ *
+ * [2026-10-21 4단계] "Is the market open" is not enough for a trading
+ * decision. An order placed while the market is closed queues until the
+ * next open, and the position then carries the overnight gap risk for the
+ * whole wait. The strategy has to know both the state and the wait, so the
+ * expected edge can be charged for the gap it is exposed to.
+ *
+ * state: "open" | "pre" | "post" | "weekend" | "holiday" | "unsupported"
+ */
+function marketSessionState(market, at = new Date(), holidays = new Set()) {
+  const sess = SESSIONS[market];
+  if (!sess) {
+    return { state: "unsupported", opensInMinutes: null, closesInMinutes: null, tz: null, localTime: null };
+  }
+  const local = localParts(at, sess.tz);
+  const base = { state: "closed", opensInMinutes: null, closesInMinutes: null, tz: sess.tz, localTime: local.hm };
+  if (!isWeekday(local.weekday)) return Object.assign({}, base, { state: "weekend" });
+  if (holidays.has(local.date)) return Object.assign({}, base, { state: "holiday" });
+  if (local.hm >= sess.open && local.hm < sess.close) {
+    return Object.assign({}, base, { state: "open", closesInMinutes: sess.close - local.hm });
+  }
+  if (local.hm < sess.open) return Object.assign({}, base, { state: "pre", opensInMinutes: sess.open - local.hm });
+  return Object.assign({}, base, { state: "post" });
+}
+
+/**
+ * Minutes until the market next opens.
+ *
+ * The arithmetic is in exchange-local minutes, so a daylight-saving change
+ * inside the window is off by up to an hour. That is acceptable here: the
+ * number is used to charge an expected edge for the gap risk of waiting,
+ * not to time an order.
+ */
+function minutesUntilNextOpen(market, at = new Date(), holidays = new Set()) {
+  const sess = SESSIONS[market];
+  if (!sess) return null;
+  for (let d = 0; d <= 7; d++) {
+    const probe = new Date(at.getTime() + d * 86400000);
+    const local = localParts(probe, sess.tz);
+    if (!isWeekday(local.weekday)) continue;
+    if (holidays.has(local.date)) continue;
+    if (local.hm < sess.open) return (sess.open - local.hm) + d * 1440;
+    if (d === 0 && local.hm < sess.close) return 0;
+  }
+  return null;
+}
+
+/**
+ * How the market's data reaches the bot, and how stale it can be.
+ *
+ * [2026-10-21 4단계] The US market is streamed over the WebSocket
+ * ("trade:us"), so its prices are real-time. The REST poll is the fallback
+ * and runs every POLL_INTERVAL_MS, so a REST-fed signal can be up to one
+ * interval stale. The Japanese market is not priceable by this broker at
+ * all - see EXCHANGE_EXECUTION_NOTES.md and the tradability module.
+ *
+ * `source` is what the strategy is actually reading, so the expected edge
+ * can be charged for the latency of the feed it is trading on.
+ */
+const MARKET_EXECUTION = Object.freeze({
+  US: { source: "websocket", pollIntervalMs: 0, note: "WebSocket trade:us stream; the REST poll is the stale-feed fallback." },
+  JP: { source: "none", pollIntervalMs: 0, note: "The Toss Open API collects no JP data; the runner falls back to the broker's average cost, which is not a price." },
+});
+
+module.exports = { SESSIONS, TRADABLE_MARKETS, MARKET_EXECUTION, isTradableMarket, isMarketOpen, getActiveMarkets, marketSessionState, minutesUntilNextOpen, localParts, createHolidayCache };
