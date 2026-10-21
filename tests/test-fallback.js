@@ -94,10 +94,23 @@ test("strong trend exit executes in fallback", () => {
     macd: { macdLine: 90, signal: 100, histogram: -10 },
     ema9: 100500, ema21: 101000,
   };
-  const pos = { avgPrice: 103000, qty: 5 };
+  const pos = { avgPrice: 100000, qty: 5 };  // [2026-10-21] +3.5%: above the
+  // round-trip cost, so the exit is allowed. A gain below the cost is not
+  // realised any more — realising it would be a guaranteed net loss.
   const d = fallbackDecision(ctx, pos, { fallbackMinScore: 3 });
   assert.equal(d.action, "SELL");
   assert.ok(d.reason.startsWith("fallback(conservative)"));
+});
+
+test("a sub-cost gain is not realised by the fallback", () => {
+  const ctx = {
+    lastClose: 103500, sma5: 104000,
+    macd: { macdLine: 90, signal: 100, histogram: -10 },
+    ema9: 100500, ema21: 101000,
+  };
+  const pos = { avgPrice: 103000, qty: 5 };  // +0.49% < the 0.64% cost
+  const d = fallbackDecision(ctx, pos, { fallbackMinScore: 3 });
+  assert.equal(d, null);
 });
 
 test("HOLD signal returns null", () => {

@@ -1828,7 +1828,23 @@ async function heldPositionSweep() {
         try { sendTelegramAlert("[Sweep] SELL " + sym + " qty=" + decision.quantity + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%)"); } catch {}
         await executeDecision(decision);
       } else if (decision) {
-        console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%, rescue=" + posRescueMode + ")");
+        // [2026-10-21] The gross unrealized is not what the position is worth:
+        // closing it costs the spread, the slippage, the commission and the
+        // tax. The net figure is what the position would actually leave the
+        // account, and it is the number the operator has to judge the book by.
+        var _netUnreal = null;
+        try {
+          _netUnreal = computeUnrealizedPnl({
+            symbol: sym, market: _mkt,
+            entryPrice: marketData._positionInfo.avgPrice,
+            currentPrice: currentPrice,
+            quantity: marketData._positionInfo.quantity,
+            fxRate: fxRateToKrw(marketCurrency(sym)),
+          });
+        } catch (e) { /* the cost estimate is best-effort */ }
+        console.log("[held-sweep] " + decision.action + " " + sym + " (pnl=" + marketData._positionInfo.pnlPct.toFixed(2) + "%"
+          + (_netUnreal ? ", netAfterCost=" + _netUnreal.netPnl.toFixed(0) + ", exitCost=" + _netUnreal.totalCosts.toFixed(0) : "")
+          + ", rescue=" + posRescueMode + ")");
       }
     }
     if (reviewed > 0) console.log("[held-sweep] Reviewed " + reviewed + "/" + positions.length + " positions, cashKrw=" + Math.round(cashKrw) + ", cashUsd=" + cashUsd.toFixed(2) + ", totalCashKrw=" + Math.round(totalCashKrw) + ", equityKrw=" + Math.round(totalEquity) + ", rescue=" + cashRescueMode + ", rescueCurrency=" + (rescueCurrency || "none") + ", fxUSD=" + cachedFxRates.FX_USD_KRW);
@@ -1869,6 +1885,40 @@ let trailingStopTriggers = 0;
 let atrHardStopTriggers = 0;
 const peakPrices = new Map(); // symbol -> highest observed price since entry
 const atrStopPrices = new Map(); // symbol -> hard stop price (entry - N*ATR)
+
+// [2026-10-21] The cost bookkeeping that was missing from the live path.
+//
+// entrySignalPrices holds the price the strategy DECIDED to trade at, so the
+// gross P&L can be measured between the decision prices and the execution
+// cost (the difference to the fill prices) can be booked explicitly.
+// entryFxRates holds the FX rate at the moment of entry, so an FX move
+// between entry and exit becomes visible in the trade P&L instead of only in
+// the equity curve — the live path passed the SAME rate for entry and exit,
+// which made the FX component of a trade structurally invisible.
+// symbolSpreadBps holds the bid/ask spread observed when the decision was
+// made. The spread is a SUBSET of the booked execution cost (the fill is at
+// the bid/ask), so it is recorded as an estimate, never charged twice.
+const entryCostMeta = new Map(); // symbol -> { signalPrice, fxRate, apiDecisions, spreadBps }
+// [2026-10-21] The bid/ask spread observed on the last orderbook fetch for a
+// symbol. The orderbook was already being fetched on every tick and the
+// spread was already being computed — it was only used to trip the
+// liquidity-shock detector. It is now also attached to the order so the
+// trade record can show how much of the execution cost was the spread.
+const lastSpreadBps = new Map();
+
+// [2026-10-21] The AI provider is a paid external API, so every decision
+// costs money. A bot that decides more often pays more, which is a real cost
+// of a high-frequency strategy. It is accumulated here and booked against the
+// trades that the decisions produced.
+const apiCostCounter = {
+  decisions: 0,
+  totalCost: 0,
+  costPerDecision: Number(process.env.COST_API_PER_DECISION || 0),
+};
+function recordApiCost() {
+  apiCostCounter.decisions++;
+  if (apiCostCounter.costPerDecision > 0) apiCostCounter.totalCost += apiCostCounter.costPerDecision;
+}
 
 // Register an ATR hard stop after a BUY fill. Called from executeDecision.
 function registerAtrStop(symbol, entryPrice, atr) {
@@ -2756,6 +2806,9 @@ async function askAI(marketData, opts) {
             var _mid = (_bestBid + _bestAsk) / 2;
             var _spreadBps = ((_bestAsk - _bestBid) / _mid) * 10000;
             orderbookCtx.spreadBps = Number(_spreadBps.toFixed(2));
+            // [2026-10-21] Remember the spread so the order that this decision
+            // produces can carry it into the trade record.
+            if (sym) lastSpreadBps.set(String(sym).toUpperCase(), orderbookCtx.spreadBps);
             // [2026-10-21] The symbol is passed so a liquidity shock is
             // attributed to the name that showed it, not to the whole book.
             selfHealer.tick({ spreadBps: orderbookCtx.spreadBps, symbol: sym });
@@ -2974,7 +3027,7 @@ async function askAI(marketData, opts) {
   signalEngine: (function() {
     try {
       if (!marketData || !marketData.symbol || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), null);
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol) });
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -3067,7 +3120,7 @@ async function askAI(marketData, opts) {
   signalEngine: (function() {
     try {
       if (!marketData || !marketData.symbol || !candleCtx) return null;
-      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), null);
+      var _sig = generateSignal(candleCtx, portfolio.positions && portfolio.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(marketData.symbol || "").toUpperCase(); }), { market: detectMarket(marketData.symbol) });
       if (!_sig) return null;
       return { action: _sig.action, score: _sig.score, strategy: _sig.strategy, reasons: _sig.reasons };
     } catch (e) { return null; }
@@ -3248,6 +3301,11 @@ async function callAIWithTools(messages, tools, toolHandler, maxRounds) {
     aiSuccesses++;
     aiConsecutiveFailures = 0;
     metrics.counter("ai_success");
+    // [2026-10-21] The AI provider is a paid external API, so every decision
+    // has a monetary cost. It is booked here and charged to the trades that
+    // the decision produced, so a strategy that decides more often than it
+    // trades shows the true cost.
+    recordApiCost();
     if (toolCallsTotal > 0) metrics.observe("ai_tool_calls_per_decision", toolCallsTotal);
     selfAudit.recordAiCall();
     return parsed;
@@ -3407,6 +3465,29 @@ async function monitorPendingOrders() {
           console.log("[order-monitor] Order " + orderId + " timed out but was PARTIALLY FILLED: " + _tFilled + "/" + (info.originalQuantity || info.quantity));
           info.filledQuantity = _tFilled;
           info.partialLogged = true;
+          // [2026-10-21] The broker charges its commission on a partial fill
+          // even when the order is then cancelled, and that cost left no
+          // trace at all: no FILL event, no P&L, nothing in the daily report.
+          // It is recorded now — a cost with no matching exit, which is
+          // exactly what it is.
+          try {
+            const _pfPrice = Number(_tResp.body?.filledPrice || _tResp.body?.avgFilledPrice || info.price || 0);
+            const _pfMarket = detectMarket(info.symbol);
+            const _pfFx = _pfMarket === "US" ? (cachedFxRates.FX_USD_KRW || 1350)
+              : (_pfMarket === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : 1);
+            const _pfFees = resolveFees(_pfMarket);
+            const _pfRate = (info.side === "BUY" ? _pfFees.buyCommissionPct : _pfFees.sellCommissionPct) || 0;
+            const _pfCommission = _pfPrice * _tFilled * _pfFx * (_pfRate / 100);
+            eventStore.append("FILL", {
+              symbol: info.symbol, side: info.side, fillPrice: _pfPrice, quantity: _tFilled,
+              partialFill: true, cancelled: true,
+              commission: Number(_pfCommission.toFixed(2)),
+              totalCosts: Number(_pfCommission.toFixed(2)),
+              netPnl: Number((-_pfCommission).toFixed(2)),
+              pnlUnknown: true,
+              reason: "partial fill cancelled by the order monitor",
+            });
+          } catch (e) { /* event store best-effort */ }
           // Record the partial fill as a real fill (best-effort) so P&L is not lost
           try { recordRecentFill(info.symbol, info.side, Number(_tResp.body?.filledPrice || _tResp.body?.avgFilledPrice || info.price || 0), _tFilled, null); } catch (e) {}
         }
@@ -3452,6 +3533,20 @@ async function monitorPendingOrders() {
         // [IMPROVE #7] Record entry price on BUY fill for accurate P&L tracking
         if (info.side === "BUY" && fillPrice > 0) {
           entryPrices.set(info.symbol, fillPrice);
+          // [2026-10-21] The cost bookkeeping for the entry. The decision
+          // price and the FX rate at the moment of entry let the exit measure
+          // the gross move between the decision prices and book the execution
+          // cost, and make an FX move between entry and exit visible in the
+          // trade P&L instead of only in the equity curve.
+          const _entryMarket = detectMarket(info.symbol);
+          const _entryFx = _entryMarket === "US" ? (cachedFxRates.FX_USD_KRW || 1350)
+            : (_entryMarket === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : 1);
+          entryCostMeta.set(String(info.symbol).toUpperCase(), {
+            signalPrice: info.price > 0 ? info.price : fillPrice,
+            fxRate: _entryFx,
+            apiDecisions: apiCostCounter.decisions,
+            spreadBps: Number(info._spreadBps) || 0,
+          });
           peakPrices.delete(info.symbol); // [P10-2a] Reset peak for new entry
         }
         // [P10-1] Compute SELL P&L BEFORE entryPrices.delete() so it can be passed to recordRecentFill
@@ -3542,8 +3637,40 @@ async function monitorPendingOrders() {
             } else if (market === "JP") {
               fxRate = cachedFxRates.FX_JPY_KRW || 9;
             }
-            var _fillQty = info.originalQuantity || info.quantity;
-            var pnlBreakdown = computeRoundTripPnl({ symbol: info.symbol, entryPrice, exitPrice: fillPrice, quantity: _fillQty, fxRate, fxRateEntry: fxRate, fxRateExit: fxRate, market, strategy: info._strategy || "standard" });
+            // [2026-10-21] The quantity booked is the quantity the broker
+            // FILLED, not the quantity that was ordered. The old code used the
+            // ordered quantity, so a partially filled order that later
+            // completed was booked for more shares than were traded.
+            var _brokerFilledQty = Number(resp.body && (resp.body.filledQuantity || resp.body.executedQuantity)) || 0;
+            var _fillQty = _brokerFilledQty > 0 ? _brokerFilledQty
+              : (Number(info.filledQty) > 0 ? Number(info.filledQty) : (info.originalQuantity || info.quantity));
+            // [2026-10-21] The cost bookkeeping for the round trip: the gross
+            // is measured between the DECISION prices, the difference to the
+            // fill prices is the execution cost (which contains the spread),
+            // the FX rate is the one from the entry so an FX move in between
+            // is visible, and the API cost is the share of the paid-model
+            // calls that happened while the position was open.
+            const _meta = entryCostMeta.get(String(info.symbol).toUpperCase()) || null;
+            var _sigEntry = (_meta && _meta.signalPrice) || entryPrice;
+            var _sigExit = (info.price && info.price > 0) ? info.price : fillPrice;
+            var _fxEntry = (_meta && _meta.fxRate) || fxRate;
+            var _apiCost = apiCostCounter.costPerDecision > 0
+              ? apiCostCounter.costPerDecision * Math.max(0, apiCostCounter.decisions - ((_meta && _meta.apiDecisions) || apiCostCounter.decisions))
+              : 0;
+            var _spreadEstimate = (_meta && _meta.spreadBps)
+              ? (_meta.spreadBps / 10000) * fillPrice * _fillQty * fxRate
+              : 0;
+            var pnlBreakdown = computeRoundTripPnl({
+              symbol: info.symbol,
+              entryPrice: entryPrice, exitPrice: fillPrice,
+              signalEntryPrice: _sigEntry, signalExitPrice: _sigExit,
+              quantity: _fillQty,
+              fxRate: fxRate, fxRateEntry: _fxEntry, fxRateExit: fxRate,
+              market: market,
+              strategy: info._strategy || "standard",
+              spreadEstimate: _spreadEstimate,
+              apiCost: _apiCost,
+            });
             sellPnl = pnlBreakdown.netPnl;
             recordSymbolOutcome(info.symbol, sellPnl);
           }
@@ -3566,6 +3693,7 @@ async function monitorPendingOrders() {
             metrics.observe("trade_pnl_krw", sellPnl);
           }
           entryPrices.delete(info.symbol); // Clear after close
+          entryCostMeta.delete(String(info.symbol).toUpperCase()); // [2026-10-21] Clear the cost metadata with the entry
           peakPrices.delete(info.symbol); // [P10-2b] Clear trailing stop peak
           atrStopPrices.delete(info.symbol); // [Phase 3.3] Clear ATR hard stop
           // [Phase I / L4.5] Meta-cognition: attach SELL outcome to original BUY decision
@@ -3602,7 +3730,27 @@ async function monitorPendingOrders() {
           }
           metrics.counter("orders_filled");
         } else if (info.side === "BUY" && fillPrice > 0) {
-          eventStore.append("FILL", { symbol: info.symbol, side: "BUY", fillPrice, quantity: info.quantity });
+          // [2026-10-21] The BUY leg now records its own costs. Previously the
+          // buy commission was only visible later, modelled on a
+          // reconstructed entry price, so a reader of the event store could
+          // not tell what the entry actually cost.
+          const _buyMeta = entryCostMeta.get(String(info.symbol).toUpperCase()) || null;
+          const _buySig = (_buyMeta && _buyMeta.signalPrice) || fillPrice;
+          const _buyFillQty = Number(resp.body && (resp.body.filledQuantity || resp.body.executedQuantity)) || 0;
+          const _buyQty = _buyFillQty > 0 ? _buyFillQty : (Number(info.filledQty) > 0 ? Number(info.filledQty) : (info.originalQuantity || info.quantity));
+          const _buyMarket = detectMarket(info.symbol);
+          const _buyFx = _buyMarket === "US" ? (cachedFxRates.FX_USD_KRW || 1350)
+            : (_buyMarket === "JP" ? (cachedFxRates.FX_JPY_KRW || 9) : 1);
+          const _buySlippage = Math.max(0, (fillPrice - _buySig)) * _buyQty * _buyFx;
+          const _buyCommission = fillPrice * _buyQty * _buyFx * ((resolveFees(_buyMarket).buyCommissionPct || 0) / 100);
+          eventStore.append("FILL", {
+            symbol: info.symbol, side: "BUY", fillPrice, quantity: _buyQty,
+            signalPrice: _buySig,
+            entrySlippage: Number(_buySlippage.toFixed(2)),
+            buyCommission: Number(_buyCommission.toFixed(2)),
+            spreadEstimate: Number((_buyMeta && _buyMeta.spreadBps ? (_buyMeta.spreadBps / 10000) * fillPrice * _buyQty * _buyFx : 0).toFixed(2)),
+            totalCosts: Number((_buySlippage + _buyCommission).toFixed(2)),
+          });
           metrics.counter("orders_filled");
         }
         pendingOrders.delete(orderId);
@@ -4595,6 +4743,9 @@ async function _executeDecisionInner(decision, sym) {
       createdAt: Date.now(),
       _strategy: input._strategy,
       _decisionSource: input._decisionSource,
+      // [2026-10-21] The spread observed when the decision was made, so the
+      // trade record can attribute part of the execution cost to the spread.
+      _spreadBps: Number(lastSpreadBps.get(String(input.symbol || "").toUpperCase())) || 0,
     });
     console.log("[exec] Tracking order " + _oid + " for fill monitoring");
   }
@@ -5444,7 +5595,7 @@ async function start() {
           var _autoToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
           var _autoCandleCtx = await fetchCandleContext(_autoToken, wsSymbol, "1d");
           var _autoPf2 = await fetchPortfolioContext();
-          var _sig = _autoCandleCtx ? generateSignal(_autoCandleCtx, _autoPf2.positions && _autoPf2.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(wsSymbol).toUpperCase(); }), null) : null;
+          var _sig = _autoCandleCtx ? generateSignal(_autoCandleCtx, _autoPf2.positions && _autoPf2.positions.find(function(p) { return String(p.symbol || p.code || "").toUpperCase() === String(wsSymbol).toUpperCase(); }), { market: detectMarket(wsSymbol) }) : null;
           console.log("[auto-trade] " + wsSymbol + " signal=" + (_sig ? _sig.action + " score=" + _sig.score + " strategy=" + _sig.strategy : "null"));
           if (_sig && _sig.action === "BUY" && _sig.score >= 1 && _sig.strategy) {
             var _autoQty = 1;
@@ -5761,7 +5912,7 @@ async function start() {
                 try {
                   var _restToken = await fetchAccessToken(TOSS_CLIENT_ID, TOSS_CLIENT_SECRET);
                   var _restCandleCtx = await fetchCandleContext(_restToken, marketData.symbol, "1d");
-                  var _restSig = _restCandleCtx ? generateSignal(_restCandleCtx, null, null) : null;
+                  var _restSig = _restCandleCtx ? generateSignal(_restCandleCtx, null, { market: detectMarket(marketData.symbol) }) : null;
                   if (_restSig && _restSig.action === "BUY" && _restSig.score >= 1 && _restSig.strategy) {
                     var _restQty = 1;
                     try {

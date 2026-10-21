@@ -8,6 +8,8 @@
  * LLM evaluates these candidates; on AI failure the fallback uses them alone.
  */
 
+const { costGate, roundTripCostPct } = require("../agent/cost-model");
+
 // [Tier 2] 수익 극대화 기본값 — 자율성 확보를 위해 보수적 기본값을 대폭 완화.
 // Tier 1 (자본 보호) 장치는 runner.js의 daily hard-stop, AI circuit breaker,
 // UNRESTRICTED_MODE forbidden 등으로 별도 유지됨.
@@ -19,6 +21,14 @@ const DEFAULT_PARAMS = Object.freeze({
   takeProfitPct: Number(process.env.SIG_TAKE_PROFIT_PCT || 12),    // [Tier 2] 큰 수익 추구 (was 5)
   bbTouchPct: Number(process.env.SIG_BB_TOUCH_PCT || 0.3),          // within 0.3% of band = touch
   minScore: Number(process.env.SIG_MIN_SCORE || 1),                 // evidence count to act (lowered for more entries)
+
+  // [2026-10-21] The market the signal is for and the cost configuration the
+  // cost gate uses. The callers set `market`; `costConfig` stays on the base
+  // profile so that a cost-sensitivity comparison runs on the SAME trade set
+  // in all three scenarios — otherwise the scenarios would differ in which
+  // trades they took, not only in what those trades cost.
+  market: process.env.SIG_DEFAULT_MARKET || "US",
+  costConfig: null,
 
   // [P1-5] ATR-based dynamic stop/take (overrides fixed % when ATR available)
   useAtrStops: process.env.SIG_USE_ATR_STOPS !== "false",
@@ -226,26 +236,47 @@ function entrySignal(ctx, p) {
     return { action: "HOLD", score: 0, reasons: [...reasons, "invalid minScore config (must be >=0)"], strategy: null };
   }
 
+  // [2026-10-21] The cost gate.
+  //
+  // A trade whose expected move is smaller than the round-trip transaction
+  // cost cannot be profitable: the cost is certain, the move is not. The
+  // expected move is taken from the ATR and the cost from the fee schedule
+  // of the market the signal is for. Measured on the real universe, the
+  // median round trip moved -0.03% while the round trip cost 0.50% — the
+  // strategy was paying 0.50% for a move it had no edge in.
+  const _gate = costGate(ctx, p.costConfig, p.market || "US");
+  if (!_gate.ok) {
+    return { action: "HOLD", score: 0, reasons: [...reasons, "cost gate: " + _gate.reason], strategy: null,
+             costGate: _gate };
+  }
+
   // [AGGRESSIVE] If score > 0 but no specific strategy matched, use default_buy
   if (!strategy && score > 0) {
     strategy = "default_buy";
     reasons.push("default_buy: score=" + score + " (no specific strategy but positive signals)");
   }
   if (score >= p.minScore && strategy) {
-    return { action: "BUY", score, reasons, strategy };
+    return { action: "BUY", score, reasons, strategy, costGate: _gate };
   }
   // [AGGRESSIVE] If score >= 0 and minScore is 0, allow any positive signal
   if (p.minScore === 0 && score > 0 && !strategy) {
     strategy = "weak_signal";
-    return { action: "BUY", score, reasons, strategy };
+    return { action: "BUY", score, reasons, strategy, costGate: _gate };
   }
-  return { action: "HOLD", score, reasons, strategy };
+  return { action: "HOLD", score, reasons, strategy, costGate: _gate };
 }
 
 function exitSignal(ctx, position, p) {
   const avg = Number(position.avgPrice);
   const retPct = ((ctx.lastClose - avg) / avg) * 100;
   const reasons = ["position return " + retPct.toFixed(2) + "%"];
+
+  // [2026-10-21] The cost gate on the exit side. Realising a gain smaller
+  // than the round-trip cost turns a small win into a guaranteed net loss, so
+  // a take-profit or a trend exit below the cost band is not taken. The
+  // stop-loss is exempt: a risk control must always fire.
+  const _costPct = roundTripCostPct(p.market || "US", p.costConfig);
+  const _coversCost = Math.abs(retPct) >= _costPct;
 
   // [P1-5] Dynamic ATR-based stops if available
   let stopLossPct = p.stopLossPct;
@@ -265,6 +296,14 @@ function exitSignal(ctx, position, p) {
              effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }
   if (retPct >= takeProfitPct) {
+    // [2026-10-21] Do not realise a gain that is smaller than the cost of
+    // getting in and out. Taking it converts a small win into a net loss.
+    if (!_coversCost) {
+      reasons.push("take-profit " + takeProfitPct.toFixed(2) + "% is above the cost band but the realised move "
+        + retPct.toFixed(3) + "% is below the " + _costPct.toFixed(3) + "% round-trip cost — holding");
+      return { action: "HOLD", score: 0, reasons, strategy: null,
+               effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct, costGate: { ok: false, costPct: _costPct } };
+    }
     return { action: "SELL", score: 10, reasons: [...reasons, "take-profit " + takeProfitPct.toFixed(2) + "%"], strategy: "risk_exit",
              effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }
@@ -281,6 +320,15 @@ function exitSignal(ctx, position, p) {
   if (ctx.ema9 != null && ctx.ema21 != null && ctx.ema9 < ctx.ema21) { score++; reasons.push("ema9<ema21 bearish cross"); }
 
   if (score >= p.minScore) {
+    // [2026-10-21] A trend exit that closes a position for a move smaller
+    // than the round-trip cost is a net loss by construction. Holding is the
+    // cheaper option; the stop-loss above still fires when the risk is real.
+    if (!_coversCost) {
+      reasons.push("trend exit would realise " + retPct.toFixed(3) + "%, below the " + _costPct.toFixed(3)
+        + "% round-trip cost — holding instead");
+      return { action: "HOLD", score, reasons, strategy: null,
+               effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct, costGate: { ok: false, costPct: _costPct } };
+    }
     return { action: "SELL", score, reasons, strategy: "trend_exit",
              effectiveStopLossPct: stopLossPct, effectiveTakeProfitPct: takeProfitPct };
   }

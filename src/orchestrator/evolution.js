@@ -84,10 +84,17 @@ function createEvolutionEngine(options = {}) {
   const backtestBaseArgs = options.backtestBaseArgs || {
     initial: 10000000,
     maxOrderValueKrw: 300000,
+    // [2026-10-21] The cost model of the LIVE bot. The old numbers were the
+    // retired Korean rate (0.015% commission, no spread, no impact, every
+    // order fully filled) — 16.7x cheaper than the live bot, so the
+    // evolution was optimising against a cost that did not exist.
+    // commissionPct 0 means "use the market's own fee schedule".
     slippagePct: 0.1,
-    impactCoefficient: 0,
-    partialFillRate: 1.0,
-    commissionPct: 0.015,
+    impactCoefficient: 2,
+    partialFillRate: 0.98,
+    commissionPct: 0,
+    spreadPct: 0.02,
+    market: "US",
   };
   const geneBounds = { ...DEFAULT_GENE_BOUNDS, ...(options.geneBounds || {}) };
   const onProposal = options.onProposal || function() {};

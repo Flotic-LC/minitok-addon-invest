@@ -17,6 +17,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createSafety } = require("./src/agent/safety");
 const { validateCandleData, validateCandle, buildResultMeta } = require("./src/strategy/candle-validation");
+const { costProfile, applyExecutionCosts, roundTripCostPct, PROFILE_NAMES } = require("./src/agent/cost-model");
 
 // [P2-10 Integration] Knowledge store — feed backtest results for self-improvement
 const { createKnowledgeStore } = require("./src/strategy/knowledge-store");
@@ -32,7 +33,15 @@ function parseArgs(argv) {
     slippagePct: 0.1,        // flat slippage per trade (0.1%)
     impactCoefficient: 0,    // sqrt market impact (0 = disabled)
     partialFillRate: 1.0,    // 1.0 = full fill, 0.7 = 70% filled
-    commissionPct: 0.015,    // Toss commission 0.015%
+    // [2026-10-21] 0 means "use the market's own fee schedule" (the cost
+    // model). The old default of 0.015 was the retired Korean rate and made
+    // every backtest 16.7x cheaper than the live bot, which is what the
+    // engines that tune live risk were optimising against.
+    commissionPct: 0,
+    // [2026-10-21] The cost scenario and the bid/ask spread.
+    costProfile: "base",
+    spreadPct: null,         // null = the cost model's default
+    market: "US",
     // [P2-10] Knowledge store integration
     knowledgeFeed: false,    // --knowledge-feed: write results to .knowledge.json
     knowledgePath: null,     // --knowledge-path <file>: custom knowledge store path
@@ -48,6 +57,10 @@ function parseArgs(argv) {
     else if (a === "--impact") args.impactCoefficient = Number(argv[++i]);
     else if (a === "--partial-fill") args.partialFillRate = Number(argv[++i]);
     else if (a === "--commission") args.commissionPct = Number(argv[++i]);
+    else if (a === "--spread") args.spreadPct = Number(argv[++i]);
+    else if (a === "--cost-profile") args.costProfile = String(argv[++i]);
+    else if (a === "--market") args.market = String(argv[++i]);
+    else if (a === "--sensitivity") args.sensitivity = true;
     else if (a === "--knowledge-feed") args.knowledgeFeed = true;
     else if (a === "--knowledge-path") args.knowledgePath = argv[++i];
   }
@@ -177,6 +190,11 @@ function decide(closes, portfolio, symbol, opts) {
     ...DEFAULT_PARAMS,
     stopLossPct: opts.stopLoss,
     takeProfitPct: opts.takeProfit,
+    // [2026-10-21] The market and the cost configuration for the gate. The
+    // gate always uses the BASE cost profile so that a cost-sensitivity
+    // comparison runs on the same trade set in all three scenarios.
+    market: (opts && opts.market) || "US",
+    costConfig: costProfile("base", buildCostConfigOverrides(opts)),
   });
   return {
     action: signal.action,
@@ -188,38 +206,69 @@ function decide(closes, portfolio, symbol, opts) {
     // something else. The caller needs to know which numbers were in force.
     effectiveStopLossPct: signal.effectiveStopLossPct,
     effectiveTakeProfitPct: signal.effectiveTakeProfitPct,
+    // [2026-10-21] The strategy that produced the signal, so the per-strategy
+    // gross-vs-net classification can attribute a round trip to the entry
+    // strategy that opened it.
+    strategy: signal.strategy || null,
   };
 }
 
 // ---------------------------------------------------------------------------
 // [P3-13] Slippage & market impact model
 // ---------------------------------------------------------------------------
-// Realistic execution cost model:
-//   executedPrice = signalPrice × (1 ± slippagePct/100 ± impact)
-//   impact = impactCoefficient × sqrt(orderValue / avgDailyVolume)
-//   partial fills: only partialFillRate of intended qty is executed
-//   commission: applied to both entry and exit
+// Realistic execution cost model.
+//
+// [2026-10-21] The cost model used to live here alone, and it was wrong in
+// four ways: the bid/ask spread was not charged at all (the backtest traded at
+// the close), the market impact was implemented but switched off in every
+// caller, the tax had no term at all, and partial fills were never exercised.
+// The rules now live in src/agent/cost-model.js so that the backtest, the
+// live fill and the engines that tune live risk are costed identically.
+function buildCostConfigOverrides(opts) {
+  const o = opts || {};
+  const overrides = {};
+  if (o.spreadPct != null) overrides.spreadPct = Number(o.spreadPct);
+  if (o.slippagePct != null) overrides.slippagePct = Number(o.slippagePct);
+  if (o.impactCoefficient != null) overrides.impactCoefficient = Number(o.impactCoefficient);
+  if (o.partialFillRate != null) overrides.partialFillRate = Number(o.partialFillRate);
+  if (o.minAtrCostMultiple != null) overrides.minAtrCostMultiple = Number(o.minAtrCostMultiple);
+  if (o.apiCostPerDecision != null) overrides.apiCostPerDecision = Number(o.apiCostPerDecision);
+  return overrides;
+}
+
+function buildCostConfig(opts) {
+  return costProfile((opts && opts.costProfile) || "base", buildCostConfigOverrides(opts));
+}
+
 function applySlippage(price, side, orderValue, avgVolume, opts) {
-  const slip = (opts.slippagePct || 0) / 100;
-  const commission = (opts.commissionPct || 0) / 100;
-  let impact = 0;
-  if (opts.impactCoefficient > 0 && avgVolume && avgVolume > 0) {
-    // Participation rate = order / daily volume; impact ∝ sqrt(participation)
-    const participation = orderValue / avgVolume;
-    impact = opts.impactCoefficient * Math.sqrt(participation) / 100;
-  }
-  // BUY: pay more; SELL: receive less
+  const cfg = buildCostConfig(opts);
   const direction = side === "BUY" ? 1 : -1;
-  const adjustedPrice = price * (1 + direction * (slip + impact));
-  const commissionCost = Math.abs(adjustedPrice * commission);
-  const fillRate = Math.max(0.01, Math.min(1.0, Number(opts.partialFillRate) || 1));
+  // Per-share application. The spread, the slippage and the impact move the
+  // execution price; the commission and the tax are charged on the executed
+  // price and folded into the effective cost the portfolio actually pays.
+  const r = applyExecutionCosts({
+    side: side, price: price, quantity: 1,
+    notional: orderValue, avgVolume: avgVolume,
+    market: (opts && opts.market) || "US", config: cfg,
+    // An explicit --commission overrides the market schedule; 0 means "use
+    // the market's own schedule".
+    fees: (opts && Number(opts.commissionPct) > 0)
+      ? { buyCommissionPct: Number(opts.commissionPct), sellCommissionPct: Number(opts.commissionPct) }
+      : null,
+  });
+  const commissionPerShare = r.costs.commission;
+  const taxPerShare = r.costs.tax;
   return {
-    executedPrice: adjustedPrice,
-    commissionPerShare: commissionCost,
-    fillRate,
-    effectiveCost: adjustedPrice + direction * commissionCost,
-    slipPct: slip * 100,
-    impactPct: impact * 100,
+    executedPrice: r.executedPrice,
+    commissionPerShare: commissionPerShare,
+    taxPerShare: taxPerShare,
+    fillRate: r.fillRate,
+    effectiveCost: r.executedPrice + direction * (commissionPerShare + taxPerShare),
+    slipPct: cfg.slippagePct,
+    impactPct: price > 0 ? (r.costs.impact / price) * 100 : 0,
+    spreadPct: price > 0 ? (r.costs.spread / price) * 100 : 0,
+    costs: r.costs,
+    totalCostPct: r.totalCostPct,
   };
 }
 
@@ -264,6 +313,21 @@ function runBacktest(candles, opts) {
   let maxDrawdown = 0;
   let wins = 0;
   let losses = 0;
+  // [2026-10-21] Gross and net are tracked separately, per trade and per
+  // strategy. A result that reports only one number cannot tell a strategy
+  // that made money from one that churned through a bigger gross P&L and
+  // lost it all to the costs.
+  let grossWins = 0;
+  let grossLosses = 0;
+  let totalGrossPnl = 0;
+  let totalNetPnl = 0;
+  let totalRoundTripCost = 0;
+  let totalCommission = 0;
+  let totalTax = 0;
+  let totalSpread = 0;
+  let totalSlippage = 0;
+  let totalImpact = 0;
+  const _byStrategy = {};
 
   // Group candles by symbol while preserving insertion order
   const bySymbol = new Map();
@@ -334,12 +398,24 @@ function runBacktest(candles, opts) {
         if (guard.ok && portfolio.cash >= totalCost) {
           portfolio.cash -= totalCost;
           const pos = portfolio.positions.get(symbol);
+          // [2026-10-21] The entry cost per share, relative to the signal
+          // price. Everything the trade paid on the way in: the spread, the
+          // slippage, the impact and the commission. It is tracked so the
+          // round trip can be reported gross (the price move) and net (the
+          // price move minus everything it cost) — a gross profit that is
+          // smaller than the cost is a net loss and has to be visible as one.
+          const entryCostPerShare = costPerShare - price;
           if (pos) {
             const totalQty = pos.qty + qty;
             pos.avgPrice = (pos.avgPrice * pos.qty + costPerShare * qty) / totalQty;
+            pos.avgSignalPrice = ((pos.avgSignalPrice || price) * pos.qty + price * qty) / totalQty;
+            pos.entryCostPerShare = ((pos.entryCostPerShare || 0) * pos.qty + entryCostPerShare * qty) / totalQty;
             pos.qty = totalQty;
           } else {
-            portfolio.positions.set(symbol, { qty: qty, avgPrice: costPerShare });
+            portfolio.positions.set(symbol, {
+              qty: qty, avgPrice: costPerShare, avgSignalPrice: price,
+              entryCostPerShare: entryCostPerShare, strategy: decision.strategy || "standard",
+            });
           }
           safety.recordPositionOpen(symbol);
           // [2026-10-21] The safety module only accumulates the daily traded
@@ -348,13 +424,30 @@ function runBacktest(candles, opts) {
           // backtest: the replay could trade more in a day than the live bot
           // is allowed to, so the measurement was optimistic by construction.
           if (typeof safety.recordOrderSuccess === "function") {
-            safety.recordOrderSuccess({ price: costPerShare, quantity: qty });
+            // [2026-10-21] The daily traded-value limit counts the SIGNAL
+            // notional, not the cost-inflated one. Counting the fill value
+            // meant a cheaper cost model fitted more trades into the same
+            // day, so the optimistic and pessimistic scenarios differed in
+            // WHICH trades they took as well as in what those trades cost —
+            // and a cost-sensitivity comparison has to isolate the cost.
+            safety.recordOrderSuccess({ price: price, quantity: qty });
           }
           trades.push({
             date: date, symbol: symbol, side: "BUY",
             signalPrice: price, price: Number(costPerShare.toFixed(2)),
             qty: qty, slippagePct: Number(slip.slipPct.toFixed(3)),
             impactPct: Number(slip.impactPct.toFixed(3)),
+            spreadPct: Number(slip.spreadPct.toFixed(3)),
+            costs: {
+              commission: Number(slip.costs.commission.toFixed(4)),
+              tax: Number(slip.costs.tax.toFixed(4)),
+              spread: Number(slip.costs.spread.toFixed(4)),
+              slippage: Number(slip.costs.slippage.toFixed(4)),
+              impact: Number(slip.costs.impact.toFixed(4)),
+              total: Number((entryCostPerShare * qty).toFixed(4)),
+            },
+            costRatio: null,
+            strategy: decision.strategy || "standard",
             reason: decision.reason,
           });
         }
@@ -367,10 +460,40 @@ function runBacktest(candles, opts) {
           const proceeds = filledQty * slip.effectiveCost;
           portfolio.cash += proceeds;
           if (typeof safety.recordOrderSuccess === "function") {
-            safety.recordOrderSuccess({ price: slip.effectiveCost, quantity: filledQty });
+            safety.recordOrderSuccess({ price: price, quantity: filledQty });
           }
           const pnl = (slip.effectiveCost - pos.avgPrice) * filledQty;
+          // [2026-10-21] Gross vs net. The gross is the price move between the
+          // signal prices; the net is that move minus everything the round
+          // trip cost — the entry spread/slippage/impact/commission, the exit
+          // ones, and the tax. A trade can be a gross winner and a net loser,
+          // and the result has to say so instead of reporting one number.
+          const entrySignalPrice = pos.avgSignalPrice || pos.avgPrice;
+          const entryCostPerShare = pos.entryCostPerShare || 0;
+          const exitCostPerShare = price - slip.effectiveCost;
+          const grossPnl = (price - entrySignalPrice) * filledQty;
+          const entryCost = entryCostPerShare * filledQty;
+          const exitCost = exitCostPerShare * filledQty;
+          const roundTripCost = entryCost + exitCost;
+          const netPnl = grossPnl - roundTripCost;
+          const costRatio = Math.abs(grossPnl) > 0 ? roundTripCost / Math.abs(grossPnl) : null;
           if (pnl >= 0) wins++; else losses++;
+          if (grossPnl >= 0) grossWins++; else grossLosses++;
+          totalGrossPnl += grossPnl;
+          totalNetPnl += netPnl;
+          totalRoundTripCost += roundTripCost;
+          totalCommission += slip.costs.commission * filledQty;
+          totalTax += slip.costs.tax * filledQty;
+          totalSpread += slip.costs.spread * filledQty;
+          totalSlippage += slip.costs.slippage * filledQty;
+          totalImpact += slip.costs.impact * filledQty;
+          const _strat = pos.strategy || "standard";
+          if (!_byStrategy[_strat]) _byStrategy[_strat] = { strategy: _strat, trades: 0, grossPnl: 0, netPnl: 0, costs: 0, wins: 0, losses: 0 };
+          _byStrategy[_strat].trades++;
+          _byStrategy[_strat].grossPnl += grossPnl;
+          _byStrategy[_strat].netPnl += netPnl;
+          _byStrategy[_strat].costs += roundTripCost;
+          if (netPnl >= 0) _byStrategy[_strat].wins++; else _byStrategy[_strat].losses++;
           safety.recordPositionClose(symbol);
           if (filledQty >= pos.qty) {
             portfolio.positions.delete(symbol);
@@ -381,9 +504,25 @@ function runBacktest(candles, opts) {
             date: date, symbol: symbol, side: "SELL",
             signalPrice: price, price: Number(slip.effectiveCost.toFixed(2)),
             qty: filledQty, pnl: Number(pnl.toFixed(2)),
+            grossPnl: Number(grossPnl.toFixed(4)),
+            netPnl: Number(netPnl.toFixed(4)),
+            costs: {
+              commission: Number(slip.costs.commission.toFixed(4)),
+              tax: Number(slip.costs.tax.toFixed(4)),
+              spread: Number(slip.costs.spread.toFixed(4)),
+              slippage: Number(slip.costs.slippage.toFixed(4)),
+              impact: Number(slip.costs.impact.toFixed(4)),
+              entry: Number(entryCost.toFixed(4)),
+              exit: Number(exitCost.toFixed(4)),
+              total: Number(roundTripCost.toFixed(4)),
+            },
+            costRatio: costRatio == null ? null : Number(costRatio.toFixed(4)),
             slippagePct: Number(slip.slipPct.toFixed(3)),
             impactPct: Number(slip.impactPct.toFixed(3)),
+            spreadPct: Number(slip.spreadPct.toFixed(3)),
             partialFill: filledQty < intendedQty,
+            strategy: _strat,
+            exitStrategy: decision.strategy || null,
             reason: decision.reason,
           });
         }
@@ -436,6 +575,19 @@ function runBacktest(candles, opts) {
     if (t.partialFill) partialFillCount++;
   }
 
+  // [2026-10-21] Mark the open positions to the last close so that the
+  // realised net P&L and the equity change can be reconciled. The average
+  // price is the effective cost, so this is already net of the entry costs
+  // and gross of the exit costs that have not been paid yet.
+  let _unrealizedPnl = 0;
+  let _openPositions = 0;
+  for (const [sym, pos] of portfolio.positions) {
+    const _series = bySymbol.get(sym) || [];
+    const _lastClose = _series.length ? Number(_series[_series.length - 1].close) : pos.avgPrice;
+    _unrealizedPnl += (_lastClose - pos.avgPrice) * pos.qty;
+    _openPositions++;
+  }
+
   return {
     initialEquity: opts.initial,
     finalEquity: Math.round(finalEquity),
@@ -448,6 +600,49 @@ function runBacktest(candles, opts) {
     wins: wins,
     losses: losses,
     winRatePct: Number(winRate.toFixed(2)),
+    // [2026-10-21] Gross vs net, and the cost that separates them. Before
+    // this, a result carried one number (the equity return) and no way to
+    // tell a strategy that earned from one that churned. These fields make
+    // the difference explicit and auditable.
+    grossPnl: Number(totalGrossPnl.toFixed(4)),
+    netPnl: Number(totalNetPnl.toFixed(4)),
+    grossWinRatePct: grossWins + grossLosses > 0 ? Number(((grossWins / (grossWins + grossLosses)) * 100).toFixed(2)) : 0,
+    totalCosts: Number(totalRoundTripCost.toFixed(4)),
+    costBreakdown: {
+      commission: Number(totalCommission.toFixed(4)),
+      tax: Number(totalTax.toFixed(4)),
+      spread: Number(totalSpread.toFixed(4)),
+      slippage: Number(totalSlippage.toFixed(4)),
+      impact: Number(totalImpact.toFixed(4)),
+      total: Number(totalRoundTripCost.toFixed(4)),
+    },
+    // How much of the gross the costs consumed. Above 1 the strategy was a
+    // gross winner and a net loser.
+    costRatio: Math.abs(totalGrossPnl) > 0 ? Number((totalRoundTripCost / Math.abs(totalGrossPnl)).toFixed(4)) : null,
+    // The per-strategy gross vs net. A strategy is only valid if it survives
+    // the costs; see classifyStrategies().
+    byStrategy: Object.keys(_byStrategy).sort().map(function(k) {
+      const s = _byStrategy[k];
+      return {
+        strategy: s.strategy, trades: s.trades, wins: s.wins, losses: s.losses,
+        grossPnl: Number(s.grossPnl.toFixed(4)),
+        netPnl: Number(s.netPnl.toFixed(4)),
+        costs: Number(s.costs.toFixed(4)),
+        costRatio: Math.abs(s.grossPnl) > 0 ? Number((s.costs / Math.abs(s.grossPnl)).toFixed(4)) : null,
+        survivesCosts: s.netPnl > 0,
+      };
+    }),
+    roundTripCostPct: Number(roundTripCostPct((opts && opts.market) || "US", buildCostConfig(opts)).toFixed(4)),
+    // [2026-10-21] The open positions at the end of the run, marked to the
+    // last close. The closed-trade net P&L and the equity return are
+    // different numbers — one is realised, the other is the whole account —
+    // and without this the two could not be reconciled.
+    unrealizedPnl: Number(_unrealizedPnl.toFixed(4)),
+    openPositions: _openPositions,
+    // The reconciliation: realised net + unrealised ~= the change in equity.
+    // The gap is the exit cost that has not been paid yet.
+    equityChange: Number((finalEquity - opts.initial).toFixed(4)),
+    costProfile: (opts && opts.costProfile) || "base",
     // [2026-10-21] Provenance. A consumer MUST check meta.validation before
     // treating any of the numbers above as a strategy measurement. A result
     // with meta.validation !== "ok" or meta.confidence === "none" is a
@@ -456,11 +651,41 @@ function runBacktest(candles, opts) {
       trades: trades.length,
       costModel: {
         commissionPct: opts.commissionPct,
+        spreadPct: buildCostConfig(opts).spreadPct,
         slippagePct: opts.slippagePct,
         impactCoefficient: opts.impactCoefficient,
         partialFillRate: opts.partialFillRate,
         maxOrderValueKrw: opts.maxOrderValueKrw,
         initialEquity: opts.initial,
+        costProfile: (opts && opts.costProfile) || "base",
+        roundTripCostPct: Number(roundTripCostPct((opts && opts.market) || "US", buildCostConfig(opts)).toFixed(4)),
+      },
+      // [2026-10-21] The signal parameters the run actually used, and the
+      // environment they came from. The signal defaults are read from the
+      // process environment, so the SAME data and the SAME command line can
+      // measure two different configurations depending on whether the .env
+      // was loaded — the cron measures the live bot, a manual run does not.
+      // The fingerprint makes that visible instead of silent.
+      signalParams: {
+        minScore: DEFAULT_PARAMS.minScore,
+        atrStopMult: DEFAULT_PARAMS.atrStopMult,
+        atrTakeMult: DEFAULT_PARAMS.atrTakeMult,
+        useAtrStops: DEFAULT_PARAMS.useAtrStops,
+        minStopPct: DEFAULT_PARAMS.minStopPct,
+        stopLossPct: opts.stopLoss,
+        takeProfitPct: opts.takeProfit,
+      },
+      envFingerprint: {
+        SIG_MIN_SCORE: process.env.SIG_MIN_SCORE || null,
+        SIG_ATR_STOP_MULT: process.env.SIG_ATR_STOP_MULT || null,
+        SIG_ATR_TAKE_MULT: process.env.SIG_ATR_TAKE_MULT || null,
+        SIG_MIN_STOP_PCT: process.env.SIG_MIN_STOP_PCT || null,
+        SIG_MIN_ATR_COST_MULTIPLE: process.env.SIG_MIN_ATR_COST_MULTIPLE || null,
+        COST_SPREAD_PCT: process.env.COST_SPREAD_PCT || null,
+        COST_SLIPPAGE_PCT: process.env.COST_SLIPPAGE_PCT || null,
+        COST_IMPACT_COEFFICIENT: process.env.COST_IMPACT_COEFFICIENT || null,
+        PNL_BUY_COMMISSION_PCT: process.env.PNL_BUY_COMMISSION_PCT || null,
+        PNL_SELL_COMMISSION_PCT: process.env.PNL_SELL_COMMISSION_PCT || null,
       },
       // [2026-10-21] Which stop and take-profit were actually in force. The
       // ATR override in the exit signal replaces the supplied stop/take, so
@@ -489,6 +714,80 @@ function runBacktest(candles, opts) {
     partialFillTrades: partialFillCount,
     tradeLog: trades,
     equityCurve: equityCurve,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// [2026-10-21] Cost sensitivity analysis and strategy classification
+// ---------------------------------------------------------------------------
+/**
+ * Run the same dataset under the three cost scenarios and say what survives.
+ *
+ * The signal set is deliberately held constant — the cost gate always uses
+ * the BASE cost, so the three scenarios differ only in what a trade COST, not
+ * in which trades were taken. Otherwise the comparison would mix two effects
+ * and a strategy could look profitable only because the pessimistic scenario
+ * took fewer trades.
+ *
+ * A strategy is classified as valid only when it is profitable NET in the
+ * base case AND in the pessimistic case. A strategy that is a gross winner
+ * but a net loser does not have an edge — it has a cost assumption.
+ */
+function runCostSensitivity(candles, opts) {
+  const base = Object.assign({}, opts || {});
+  const runs = {};
+  for (const name of PROFILE_NAMES) {
+    // [2026-10-21] Every scenario fills completely. A partial fill changes
+    // the position sizes, which changes which orders the size limit admits,
+    // so a partial fill would make the scenarios differ in WHICH trades they
+    // took as well as in what those trades cost. The comparison has to
+    // isolate the cost. The fill mechanic is exercised on its own.
+    const r = runBacktest(candles, Object.assign({}, base, { costProfile: name, partialFillRate: 1.0 }));
+    runs[name] = {
+      costProfile: name,
+      totalReturnPct: r.totalReturnPct,
+      sharpe: r.sharpe,
+      trades: r.trades,
+      grossPnl: r.grossPnl,
+      netPnl: r.netPnl,
+      totalCosts: r.totalCosts,
+      costRatio: r.costRatio,
+      roundTripCostPct: r.roundTripCostPct,
+      byStrategy: r.byStrategy,
+    };
+  }
+  const strategies = {};
+  for (const name of PROFILE_NAMES) {
+    for (const s of runs[name].byStrategy) {
+      if (!strategies[s.strategy]) strategies[s.strategy] = { strategy: s.strategy, scenarios: {} };
+      strategies[s.strategy].scenarios[name] = {
+        grossPnl: s.grossPnl, netPnl: s.netPnl, costs: s.costs, trades: s.trades, costRatio: s.costRatio,
+      };
+    }
+  }
+  const byStrategy = Object.keys(strategies).sort().map(function(k) {
+    const s = strategies[k];
+    const baseNet = s.scenarios.base ? s.scenarios.base.netPnl : null;
+    const pessNet = s.scenarios.pessimistic ? s.scenarios.pessimistic.netPnl : null;
+    const grossEver = Object.keys(s.scenarios).some(function(n) { return s.scenarios[n].grossPnl > 0; });
+    const netEver = Object.keys(s.scenarios).some(function(n) { return s.scenarios[n].netPnl > 0; });
+    const survives = baseNet != null && pessNet != null && baseNet > 0 && pessNet > 0;
+    return {
+      strategy: k,
+      scenarios: s.scenarios,
+      survivesCosts: survives,
+      grossPositive: grossEver,
+      netPositive: netEver,
+      verdict: survives ? "survives"
+        : (grossEver && !netEver ? "gross winner, net loser — killed by costs"
+          : (grossEver ? "gross positive but net negative in every scenario" : "not profitable")),
+    };
+  });
+  return {
+    runs: runs,
+    byStrategy: byStrategy,
+    survivors: byStrategy.filter(function(s) { return s.survivesCosts; }).map(function(s) { return s.strategy; }),
+    killedByCosts: byStrategy.filter(function(s) { return s.grossPositive && !s.survivesCosts; }).map(function(s) { return s.strategy; }),
   };
 }
 
@@ -542,6 +841,59 @@ function main() {
   console.log("Validation     : " + result.meta.validation + " (confidence " + result.meta.confidence + ")"
     + (result.meta.invalidReason ? " — " + result.meta.invalidReason : ""));
   console.log("");
+  // [2026-10-21] Gross vs net. The equity return alone cannot tell a
+  // strategy that earned from one that churned through a bigger gross P&L
+  // and lost it all to the costs, so both are printed with the cost that
+  // separates them.
+  console.log("=== Gross vs Net ===");
+  console.log("Gross P&L      : " + result.grossPnl + " (win rate " + result.grossWinRatePct + "%)");
+  console.log("Total costs    : " + result.totalCosts
+    + " (commission " + result.costBreakdown.commission
+    + ", tax " + result.costBreakdown.tax
+    + ", spread " + result.costBreakdown.spread
+    + ", slippage " + result.costBreakdown.slippage
+    + ", impact " + result.costBreakdown.impact + ")");
+  console.log("Net P&L        : " + result.netPnl);
+  console.log("Cost ratio     : " + (result.costRatio == null ? "n/a" : result.costRatio)
+    + (result.costRatio != null && result.costRatio > 1 ? "  <-- the costs ate more than the gross" : ""));
+  console.log("Round-trip cost: " + result.roundTripCostPct + "% per round trip (profile " + result.costProfile + ")");
+  console.log("");
+
+  // [2026-10-21] The per-strategy classification: which strategies survive
+  // the costs and which are gross winners that die net.
+  if (result.byStrategy && result.byStrategy.length > 0) {
+    console.log("=== Per strategy (gross vs net) ===");
+    for (const s of result.byStrategy) {
+      console.log("  " + String(s.strategy).padEnd(18)
+        + " trades=" + String(s.trades).padStart(4)
+        + " gross=" + String(s.grossPnl).padStart(12)
+        + " net=" + String(s.netPnl).padStart(12)
+        + " costRatio=" + (s.costRatio == null ? "n/a" : s.costRatio)
+        + (s.survivesCosts ? "  SURVIVES" : "  killed by costs"));
+    }
+    console.log("");
+  }
+
+  // [2026-10-21] The cost sensitivity analysis: the same trade set under the
+  // optimistic, base and pessimistic cost scenarios, and what survives.
+  let sensitivity = null;
+  if (args.sensitivity) {
+    console.log("=== Cost sensitivity ===");
+    sensitivity = runCostSensitivity(candles, args);
+    for (const name of PROFILE_NAMES) {
+      const r = sensitivity.runs[name];
+      console.log("  " + name.padEnd(12)
+        + " roundTripCost=" + String(r.roundTripCostPct).padStart(7) + "%"
+        + " trades=" + String(r.trades).padStart(4)
+        + " gross=" + String(r.grossPnl).padStart(12)
+        + " net=" + String(r.netPnl).padStart(12)
+        + " return=" + String(r.totalReturnPct).padStart(8) + "%"
+        + " sharpe=" + String(r.sharpe).padStart(7));
+    }
+    console.log("  survivors        : " + (sensitivity.survivors.join(", ") || "(none)"));
+    console.log("  killed by costs  : " + (sensitivity.killedByCosts.join(", ") || "(none)"));
+    console.log("");
+  }
 
   if (process.env.BACKTEST_VERBOSE === "true") {
     for (const t of result.tradeLog) {
@@ -581,6 +933,19 @@ function main() {
     process.exitCode = 1;
   }
 
+  // [2026-10-21] The sensitivity analysis is written next to the result so
+  // that the operator can see which strategies survive the costs without
+  // re-running the backtest.
+  if (sensitivity) {
+    try {
+      const sensPath = path.join(path.dirname(dataPath), "backtest-cost-sensitivity.json");
+      fs.writeFileSync(sensPath, JSON.stringify(sensitivity, null, 2), "utf8");
+      console.log("[backtest] Cost sensitivity written to " + sensPath);
+    } catch (e) {
+      console.error("[backtest] Failed to write the sensitivity analysis: " + e.message);
+    }
+  }
+
   // [P2-10 Integration] Feed backtest SELL trades into knowledge store
   if (args.knowledgeFeed && result.tradeLog && result.tradeLog.length > 0) {
     const ksPath = args.knowledgePath || path.join(__dirname, ".knowledge.json");
@@ -606,4 +971,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { runBacktest, decide, sma, changePct, parseArgs, applySlippage };
+module.exports = { runBacktest, runCostSensitivity, decide, sma, changePct, parseArgs, applySlippage, buildCostConfig };

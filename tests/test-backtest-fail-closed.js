@@ -42,7 +42,11 @@ function makeCandles(symbol, days, startPrice, drift, seed) {
   const out = [];
   let price = startPrice;
   for (let i = 0; i < days; i++) {
-    price = price * (1 + drift + 0.012 * (rnd() - 0.5));
+    // [2026-10-21] A realistic daily range. The old +/-0.6% produced an ATR
+    // of ~0.4%, and an expected move that small is below the 0.64% round
+    // trip cost, so the cost gate correctly refused every entry and the
+    // fixture could no longer exercise the backtest at all.
+    price = price * (1 + drift + 0.03 * (rnd() - 0.5));
     const close = price;
     const open = price * (1 + (rnd() - 0.5) * 0.002);
     const high = Math.max(open, close) * (1 + rnd() * 0.003);

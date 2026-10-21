@@ -152,6 +152,20 @@ function pick(c, names) {
 
     allCandles.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
+    // [2026-10-21] Fail closed on a partial universe. The fetch loop catches
+    // a per-symbol error and continues, so a rate limit that knocked out four
+    // of the five symbols still produced a "valid" dataset of one symbol —
+    // and the measurement then described a different universe than the one
+    // the bot trades. A missing symbol is a failed measurement.
+    const gotSymbols = new Set(allCandles.map(c => c.symbol));
+    const missing = symbols.filter(s => !gotSymbols.has(s));
+    if (missing.length > 0) {
+      console.error('[backtest-cron] CANDLE DATA REJECTED: no candles for ' + missing.join(', ')
+        + ' (the fetch failed for those symbols; a partial universe measures a different strategy)');
+      console.error('[backtest-cron] No candles.json was written and no backtest was run.');
+      process.exit(2);
+    }
+
     // Fail closed: never publish a dataset that cannot be measured.
     const validation = validateCandleData(allCandles);
     if (!validation.ok) {
@@ -189,7 +203,8 @@ node "$SCRIPT_DIR/backtest.js" \
   --take-profit "$BT_TAKE_PROFIT" \
   --max-order-value "$BT_MAX_ORDER" \
   --commission "$BT_COMMISSION" \
-  --slippage "$BT_SLIPPAGE"
+  --slippage "$BT_SLIPPAGE" \
+  --sensitivity
 BT_EXIT=$?
 set -e
 

@@ -70,10 +70,26 @@ test("trend breakdown exits position even without stop hit", () => {
     macd: { macdLine: 90, signal: 100, histogram: -10 },
     ema9: 100500, ema21: 101000, // ema9 < ema21
   };
-  const pos = { avgPrice: 103000, qty: 5 }; // +0.49%, no stop/tp
+  // [2026-10-21] The position is +3.5% up. A gain smaller than the round
+  // trip cost is not realised any more — see the next test.
+  const pos = { avgPrice: 100000, qty: 5 };
   const s = generateSignal(ctx, pos);
   assert.equal(s.action, "SELL");
   assert.equal(s.strategy, "trend_exit");
+});
+
+test("a gain smaller than the round-trip cost is not realised", () => {
+  const ctx = {
+    ...baseCtx,
+    lastClose: 103500, sma5: 104000,
+    macd: { macdLine: 90, signal: 100, histogram: -10 },
+    ema9: 100500, ema21: 101000,
+  };
+  // +0.49% while the round trip costs ~0.64%: taking it would be a
+  // guaranteed net loss, so the exit is suppressed.
+  const pos = { avgPrice: 103000, qty: 5 };
+  const s = generateSignal(ctx, pos);
+  assert.equal(s.action, "HOLD");
 });
 
 test("mean-reversion BUY on oversold + lower band touch", () => {

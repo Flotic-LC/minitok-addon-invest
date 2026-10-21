@@ -44,7 +44,11 @@ test("parseArgs has safe defaults (slippage off by default except commission)", 
   assert.equal(a.slippagePct, 0.1);
   assert.equal(a.impactCoefficient, 0);
   assert.equal(a.partialFillRate, 1.0);
-  assert.equal(a.commissionPct, 0.015);
+  // [2026-10-21] 0 means "use the market's own fee schedule" (the cost
+  // model). The old default was 0.015 — the retired Korean rate — so a
+  // backtest that did not pass --commission silently costed a US round trip
+  // at 0.03% instead of 0.50%.
+  assert.equal(a.commissionPct, 0);
 });
 
 test("applySlippage raises BUY price", () => {

@@ -141,7 +141,15 @@ function createWalkForwardValidator(options = {}) {
     const args = {
       initial: initial,
       maxOrderValueKrw: Math.round(initial * (cfg.oosOrderValuePct / 100)),
-      slippagePct: 0.1, impactCoefficient: 0, partialFillRate: 1.0, commissionPct: 0.015,
+      // [2026-10-21] The cost model of the LIVE bot, not a cheaper one. The
+      // old numbers were the retired Korean rate (0.015% commission, no
+      // spread, no impact, every order fully filled) — a round trip that
+      // really costs 0.50% was being measured at 0.03%, so the validator was
+      // optimising against a cost that did not exist. commissionPct 0 means
+      // "use the market's own fee schedule" (the cost model).
+      slippagePct: 0.1, impactCoefficient: 2, partialFillRate: 0.98, commissionPct: 0,
+      spreadPct: 0.02,
+      market: "US",
     };
     if (!bounds) return args;
     for (const param of Object.keys(bounds)) {
